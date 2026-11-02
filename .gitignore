@@ -28,3 +28,6 @@ samples/
 # assets générés par web/scripts/setup-assets.mjs
 web/public/wasm/
 web/public/models/
+
+# sortie du test navigateur
+web/scripts/.e2e-last.png

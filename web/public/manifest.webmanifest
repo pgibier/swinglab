@@ -1,0 +1,15 @@
+{
+  "name": "SwingLab — Analyse de swing de golf",
+  "short_name": "SwingLab",
+  "description": "Analyse ton swing de golf depuis une vidéo. Tout le calcul reste sur ton appareil.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#070b0f",
+  "theme_color": "#070b0f",
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

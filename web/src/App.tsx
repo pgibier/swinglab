@@ -5,7 +5,7 @@ import { ScoreHeader } from './components/ScoreHeader'
 import { PhaseStrip } from './components/PhaseStrip'
 import { SwingPlayer, type SeekRequest } from './components/SwingPlayer'
 import { ReportView } from './components/ReportView'
-import { loadLandmarker, type LoadedLandmarker } from './pose/mediapipe'
+import { ModelLoadError, loadLandmarker, type LoadedLandmarker } from './pose/mediapipe'
 import { extractPoseSequence, loadVideo } from './pose/extract'
 import { analyzeSequence } from './core'
 import type { FaultResult, PoseSequence, SwingReport } from './core/types'
@@ -120,6 +120,14 @@ export default function App() {
       })
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
+      if (err instanceof ModelLoadError) {
+        setStage({
+          k: 'error',
+          message: err.message,
+          hint: 'Vérifie ta connexion : le modèle est téléchargé une seule fois, puis mis en cache. Si le problème persiste, recharge la page.',
+        })
+        return
+      }
       setStage({
         k: 'error',
         message: err instanceof Error ? err.message : 'Analyse impossible.',

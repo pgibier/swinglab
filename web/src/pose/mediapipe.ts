@@ -26,14 +26,33 @@ const modelUrl = (v: ModelVariant) =>
 
 const localModelUrl = (v: ModelVariant) => `${import.meta.env.BASE_URL}models/pose_landmarker_${v}.task`
 
-async function exists(url: string): Promise<boolean> {
+/**
+ * Vérifie qu'une URL sert bien le fichier attendu.
+ *
+ * Un simple `res.ok` ne suffit pas : les hébergeurs statiques avec repli SPA
+ * (Cloudflare Pages, Netlify, Vercel…) renvoient `index.html` avec un code 200
+ * pour n'importe quel chemin inconnu. Sans ce contrôle, on passe du HTML à
+ * MediaPipe, qui échoue avec un obscur « Unable to open zip archive ».
+ */
+async function isServedFile(url: string, minBytes = 0): Promise<boolean> {
   try {
     const res = await fetch(url, { method: 'HEAD' })
-    return res.ok
+    if (!res.ok) return false
+    const type = res.headers.get('content-type') ?? ''
+    if (type.includes('text/html')) return false
+    if (minBytes > 0) {
+      const length = Number(res.headers.get('content-length') ?? '0')
+      // Un Content-Length absent (transfert chunked) n'est pas disqualifiant.
+      if (length > 0 && length < minBytes) return false
+    }
+    return true
   } catch {
     return false
   }
 }
+
+/** Un modèle de pose pèse au minimum ~5 Mo : en dessous, ce n'est pas un modèle. */
+const MIN_MODEL_BYTES = 1_000_000
 
 export interface LoadedLandmarker {
   landmarker: PoseLandmarker
@@ -50,10 +69,10 @@ export interface LoadedLandmarker {
  */
 export async function loadLandmarker(variant: ModelVariant = 'full'): Promise<LoadedLandmarker> {
   const localWasm = `${import.meta.env.BASE_URL}wasm`
-  const useLocalWasm = await exists(`${localWasm}/vision_wasm_internal.wasm`)
+  const useLocalWasm = await isServedFile(`${localWasm}/vision_wasm_internal.wasm`)
   const fileset = await FilesetResolver.forVisionTasks(useLocalWasm ? localWasm : CDN_WASM)
 
-  const useLocalModel = await exists(localModelUrl(variant))
+  const useLocalModel = await isServedFile(localModelUrl(variant), MIN_MODEL_BYTES)
   const assetPath = useLocalModel ? localModelUrl(variant) : modelUrl(variant)
 
   const options = {
@@ -75,10 +94,31 @@ export async function loadLandmarker(variant: ModelVariant = 'full'): Promise<Lo
     })
     return { landmarker, variant, delegate: 'GPU', local: useLocalModel && useLocalWasm }
   } catch {
-    const landmarker = await PoseLandmarker.createFromOptions(fileset, {
-      ...options,
-      baseOptions: { ...options.baseOptions, delegate: 'CPU' },
-    })
-    return { landmarker, variant, delegate: 'CPU', local: useLocalModel && useLocalWasm }
+    try {
+      const landmarker = await PoseLandmarker.createFromOptions(fileset, {
+        ...options,
+        baseOptions: { ...options.baseOptions, delegate: 'CPU' },
+      })
+      return { landmarker, variant, delegate: 'CPU', local: useLocalModel && useLocalWasm }
+    } catch (err) {
+      // Les erreurs natives de MediaPipe sont illisibles pour un utilisateur :
+      // on les remplace par un message actionnable.
+      throw new ModelLoadError(
+        'Le modèle de détection de pose n\u2019a pas pu être chargé.',
+        assetPath,
+        err,
+      )
+    }
+  }
+}
+
+export class ModelLoadError extends Error {
+  readonly assetPath: string
+  readonly cause: unknown
+  constructor(message: string, assetPath: string, cause: unknown) {
+    super(message)
+    this.name = 'ModelLoadError'
+    this.assetPath = assetPath
+    this.cause = cause
   }
 }

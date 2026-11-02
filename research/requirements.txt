@@ -1,0 +1,10 @@
+# Atelier de recherche hors-ligne (validation, entraînement).
+# L'application web n'en dépend PAS : elle tourne entièrement dans le
+# navigateur. Ces paquets servent à valider le moteur contre un jeu de
+# données annoté et à préparer la piste ML.
+mediapipe>=1.2.0
+opencv-python-headless>=4.10
+numpy>=1.26
+pandas>=2.2
+scipy>=1.13
+tqdm>=4.66
