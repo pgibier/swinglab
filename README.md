@@ -7,7 +7,24 @@ défauts avec exercices correctifs.
 **Tout le calcul se fait dans le navigateur.** Aucun serveur d'inférence, donc
 aucun coût d'hébergement — et la vidéo ne quitte jamais l'appareil.
 
-## Démarrage
+## Utiliser l'app sans terminal
+
+L'app est un site statique : elle se déploie toute seule à chaque push, via
+GitHub Actions, et s'utilise depuis le navigateur du téléphone.
+
+**Activation, une seule fois** (dans le navigateur, aucun terminal) :
+`Settings` → `Pages` → *Build and deployment* → **Source : GitHub Actions**.
+
+L'adresse devient ensuite `https://<compte>.github.io/swinglab/`. Ouvre-la sur
+ton téléphone et ajoute-la à l'écran d'accueil : elle s'installe comme une
+application.
+
+Le modèle de pose est embarqué dans le site par le workflow, donc l'app ne
+dépend d'aucun CDN tiers.
+
+## Développement local
+
+Node 20.19 ou plus récent (Node 20.18 ne suffit pas pour la chaîne de build).
 
 ```bash
 cd web

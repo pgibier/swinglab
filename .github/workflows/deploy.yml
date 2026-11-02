@@ -1,0 +1,56 @@
+name: Déploiement GitHub Pages
+
+on:
+  push:
+    branches: [claude/adoring-sagan-l58a56, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Un seul déploiement à la fois ; on laisse finir celui en cours.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Tests du moteur
+        run: npm test
+      - name: Runtime WASM + modèle de pose
+        # Le modèle est embarqué dans le site : l'app ne dépend alors
+        # d'aucun CDN tiers et fonctionne même si Google change ses URL.
+        run: npm run setup:assets -- --models full
+      - name: Build
+        env:
+          # Site de projet GitHub Pages : servi depuis /<repo>/
+          BASE_PATH: /${{ github.event.repository.name }}/
+        run: npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
