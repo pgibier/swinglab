@@ -41,6 +41,10 @@ jobs:
           BASE_PATH: /${{ github.event.repository.name }}/
         run: npm run build
       - uses: actions/configure-pages@v5
+        with:
+          # Active GitHub Pages si ce n'est pas déjà fait, pour éviter d'avoir
+          # à basculer la source à la main dans les réglages du dépôt.
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web/dist
