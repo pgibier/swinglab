@@ -2,6 +2,7 @@
 
 import { FAULTS } from '../config'
 import { LM } from '../landmarks'
+import { medianOver } from '../geometry'
 import { hasAll, pt } from '../smoothing'
 import {
   makeFault, requireView, ruleConfidence, severityFrom, type Rule,
@@ -19,7 +20,8 @@ export const spineTiltAtAddress: Rule = (ctx) => {
   if (skip) return skip
 
   const a = ctx.events.address
-  const value = ctx.metrics.spineTilt[a]
+  // Médiane sur toute la fenêtre d'immobilité, pas une image isolée.
+  const value = medianOver(ctx.metrics.spineTilt, ctx.addressWindow.start, ctx.addressWindow.end)
   if (!Number.isFinite(value)) return null
 
   const { idealMin, idealMax, minor, major } = FAULTS.setupSpineTilt
@@ -54,7 +56,7 @@ export const kneeFlexAtAddress: Rule = (ctx) => {
   if (skip) return skip
 
   const a = ctx.events.address
-  const value = ctx.metrics.kneeFlex[a]
+  const value = medianOver(ctx.metrics.kneeFlex, ctx.addressWindow.start, ctx.addressWindow.end)
   if (!Number.isFinite(value)) return null
 
   const { idealMin, idealMax, minor, major } = FAULTS.setupKneeFlex

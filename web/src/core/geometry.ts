@@ -81,6 +81,23 @@ export function stdFinite(values: ArrayLike<number>): number {
   return n < 2 ? 0 : Math.sqrt(sum / (n - 1))
 }
 
+/**
+ * Médiane des valeurs finies sur [lo, hi]. NaN si aucune.
+ * Préférée à la moyenne pour résumer une fenêtre : un point clé aberrant
+ * isolé ne déplace pas une médiane.
+ */
+export function medianOver(values: ArrayLike<number>, lo: number, hi: number): number {
+  const picked: number[] = []
+  for (let i = Math.max(0, lo); i <= Math.min(values.length - 1, hi); i++) {
+    const v = values[i]
+    if (Number.isFinite(v)) picked.push(v)
+  }
+  if (picked.length === 0) return NaN
+  picked.sort((a, b) => a - b)
+  const mid = picked.length >> 1
+  return picked.length % 2 ? picked[mid] : (picked[mid - 1] + picked[mid]) / 2
+}
+
 /** Index de la valeur finie minimale sur [lo, hi]. -1 si aucune. */
 export function argMin(values: ArrayLike<number>, lo = 0, hi = values.length - 1): number {
   let best = -1

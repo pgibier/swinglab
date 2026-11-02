@@ -20,6 +20,8 @@ export interface FaultContext {
   c: CleanedPose
   ref: BodyRef
   events: SwingEvents
+  /** Plage d'immobilité à l'adresse, sur laquelle les mesures de setup sont moyennées. */
+  addressWindow: { start: number; end: number }
   eventConfidence: SwingEventConfidence
   metrics: MetricSeries
   quality: SwingQuality

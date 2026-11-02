@@ -7,12 +7,26 @@
  * énoncée ; et surtout, une règle sait EXPLIQUER pourquoi elle a déclenché —
  * ce qui est le produit qu'on veut livrer à un débutant.
  *
+ * RECHERCHE GLOBALE, et pourquoi.
+ * Une première version cherchait séquentiellement : adresse = dernière fenêtre
+ * d'immobilité du début de vidéo, puis sommet, puis impact. Mesurée sur 335
+ * swings de professionnels annotés, elle plaçait l'impact franchement à côté
+ * dans 40 % des cas — en verrouillant sur un swing d'essai, un replacement ou
+ * une seconde balle, c'est-à-dire sur un autre mouvement que celui attendu.
+ * Sur les clips propres elle était pourtant juste à 2 images près : c'était la
+ * stratégie de recherche qui était fausse, pas la mesure.
+ *
+ * On énumère donc les candidats d'impact dans TOUTE la vidéo (pics de vitesse
+ * des mains), on reconstruit un swing complet autour de chacun, et on retient
+ * celui qui est physiquement le plus plausible : amplitude verticale des
+ * mains, durées de montée et de descente, tempo, et cohérence entre le point
+ * bas des mains et le pic de vitesse.
+ *
  * Honnêteté sur les limites : 4 des 8 événements (toe-up, mi-backswing,
  * mi-descente, mi-finish) sont définis par la POSITION DU CLUB dans GolfDB.
  * Le club n'est pas détecté ici, donc ces 4 événements sont des APPROXIMATIONS
  * basées sur la hauteur des mains, et leur confiance est plafonnée en
- * conséquence. Les 4 événements structurants (adresse, top, impact, finish)
- * sont, eux, déterminés par la cinématique réelle du corps.
+ * conséquence.
  */
 
 import { EVENTS, QUALITY } from './config'
@@ -25,7 +39,7 @@ import { SWING_EVENTS, type SwingEventConfidence, type SwingEvents } from './typ
 export interface EventSignals {
   /** Abscisse du milieu des poignets. */
   handsX: Float64Array
-  /** Ordonnée du milieu des poignets. */
+  /** Ordonnée du milieu des poignets (l'axe y descend : plus petit = plus haut). */
   handsY: Float64Array
   /** Hauteur des mains au-dessus du bassin d'adresse, en U. */
   handHeight: Float64Array
@@ -33,29 +47,6 @@ export interface EventSignals {
   handSpeed: Float64Array
   /** Échelle provisoire (torse médian). */
   scale: number
-}
-
-/** Plus longue plage d'immobilité dans [lo, hi]. */
-function stillRuns(
-  speed: Float64Array,
-  lo: number,
-  hi: number,
-  maxSpeed: number,
-  minLen: number,
-): Array<{ start: number; end: number }> {
-  const runs: Array<{ start: number; end: number }> = []
-  let start = -1
-  for (let f = lo; f <= hi; f++) {
-    const s = speed[f]
-    const still = Number.isFinite(s) && s < maxSpeed
-    if (still && start < 0) start = f
-    if (!still && start >= 0) {
-      if (f - start >= minLen) runs.push({ start, end: f - 1 })
-      start = -1
-    }
-  }
-  if (start >= 0 && hi - start + 1 >= minLen) runs.push({ start, end: hi })
-  return runs
 }
 
 export function computeSignals(c: CleanedPose): EventSignals {
@@ -82,6 +73,142 @@ export function computeSignals(c: CleanedPose): EventSignals {
   return { handsX, handsY, handHeight: new Float64Array(n).fill(NaN), handSpeed, scale }
 }
 
+/** Plages d'immobilité d'au moins `minLen` frames dans [lo, hi]. */
+function stillRuns(
+  speed: Float64Array,
+  lo: number,
+  hi: number,
+  maxSpeed: number,
+  minLen: number,
+): Array<{ start: number; end: number }> {
+  const runs: Array<{ start: number; end: number }> = []
+  let start = -1
+  for (let f = Math.max(0, lo); f <= hi; f++) {
+    const s = speed[f]
+    const still = Number.isFinite(s) && s < maxSpeed
+    if (still && start < 0) start = f
+    if (!still && start >= 0) {
+      if (f - start >= minLen) runs.push({ start, end: f - 1 })
+      start = -1
+    }
+  }
+  if (start >= 0 && hi - start + 1 >= minLen) runs.push({ start, end: hi })
+  return runs
+}
+
+/**
+ * Maxima locaux dépassant une fraction du pic global, espacés d'au moins
+ * `separation` frames (suppression des non-maxima).
+ */
+function speedPeaks(speed: Float64Array, ratio: number, separation: number): number[] {
+  const n = speed.length
+  const globalIdx = argMax(speed, 0, n - 1)
+  if (globalIdx < 0) return []
+  const threshold = speed[globalIdx] * ratio
+
+  const candidates: number[] = []
+  for (let f = 1; f < n - 1; f++) {
+    const v = speed[f]
+    if (!Number.isFinite(v) || v < threshold) continue
+    if (v >= speed[f - 1] && v > speed[f + 1]) candidates.push(f)
+  }
+  if (candidates.length === 0) return [globalIdx]
+
+  // Du plus fort au plus faible, en écartant les voisins déjà retenus.
+  candidates.sort((a, b) => speed[b] - speed[a])
+  const kept: number[] = []
+  for (const f of candidates) {
+    if (kept.every((k) => Math.abs(k - f) >= separation)) kept.push(f)
+    if (kept.length >= 8) break
+  }
+  return kept.sort((a, b) => a - b)
+}
+
+/** Score de plausibilité d'une durée, 1 dans la plage, décroissant au-delà. */
+function plausible(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return 0
+  if (value >= min && value <= max) return 1
+  const span = max - min || 1
+  const excess = value < min ? min - value : value - max
+  return clamp(1 - excess / span, 0, 1)
+}
+
+interface Candidate {
+  /** Début de la fenêtre d'immobilité d'adresse. */
+  addressStart: number
+  address: number
+  top: number
+  impact: number
+  finish: number
+  score: number
+  addressFound: boolean
+  finishFound: boolean
+}
+
+/** Reconstruit un swing autour d'un pic de vitesse et le note. */
+function buildCandidate(
+  sig: EventSignals,
+  peak: number,
+  fps: number,
+  n: number,
+  minLen: number,
+  globalPeakSpeed: number,
+): Candidate | null {
+  const backWindow = Math.round(EVENTS.maxBackswingSec * fps)
+
+  // Sommet : mains les plus hautes (y minimal) juste avant le pic.
+  const top = argMin(sig.handsY, Math.max(0, peak - backWindow), Math.max(0, peak - 1))
+  if (top < 0) return null
+
+  // Impact : mains les plus basses après le sommet, dans une fenêtre de descente
+  // généreuse — au-delà, les mains remontent dans le finish.
+  const downWindow = Math.round(EVENTS.maxDownswingSec * fps * 1.5)
+  const impact = argMax(sig.handsY, top + 1, Math.min(n - 1, top + downWindow))
+  if (impact <= top) return null
+
+  // Adresse : dernière immobilité avant le sommet.
+  const preRuns = stillRuns(sig.handSpeed, 0, Math.max(0, top - 1), EVENTS.stillSpeed, minLen)
+  const addressFound = preRuns.length > 0
+  const addressRun = addressFound ? preRuns[preRuns.length - 1] : null
+  const address = addressRun
+    ? addressRun.end
+    : Math.max(0, top - Math.round(EVENTS.minBackswingSec * fps))
+  const addressStart = addressRun ? addressRun.start : address
+
+  // Finish : première immobilité après l'impact, passé un délai minimal.
+  const finishFrom = Math.min(n - 1, impact + Math.round(EVENTS.finishDelaySec * fps))
+  const postRuns = stillRuns(sig.handSpeed, finishFrom, n - 1, EVENTS.stillSpeed, minLen)
+  const finishFound = postRuns.length > 0
+  const finish = finishFound ? postRuns[0].start : n - 1
+
+  if (!(address < top && top < impact && impact < finish)) return null
+
+  const backSec = (top - address) / fps
+  const downSec = (impact - top) / fps
+  const dropU = (sig.handsY[impact] - sig.handsY[top]) / sig.scale
+  const tempo = backSec / Math.max(1e-6, downSec)
+
+  // Une amplitude verticale insuffisante n'est pas un swing : c'est un waggle,
+  // un replacement ou un pas de côté.
+  if (!Number.isFinite(dropU) || dropU < EVENTS.minHandDropU) return null
+
+  const score =
+    clamp(sig.handSpeed[peak] / Math.max(1e-6, globalPeakSpeed), 0, 1) *
+    clamp(dropU / EVENTS.idealHandDropU, 0, 1) *
+    plausible(backSec, EVENTS.minBackswingSec, EVENTS.maxBackswingSec) *
+    plausible(downSec, EVENTS.minDownswingSec, EVENTS.maxDownswingSec) *
+    plausible(tempo, EVENTS.candidateTempoMin, EVENTS.candidateTempoMax) *
+    // Le pic de vitesse des mains PRÉCÈDE normalement l'impact d'une centaine
+    // de millisecondes : les mains décélèrent quand le club se libère. On
+    // tolère donc pleinement cet écart, et on ne pénalise qu'au-delà — sinon
+    // on punit la physique du geste au lieu de détecter une incohérence.
+    plausible(Math.abs(impact - peak) / fps, 0, EVENTS.peakAlignSec) *
+    (addressFound ? 1 : 0.7) *
+    (finishFound ? 1 : 0.85)
+
+  return { addressStart, address, top, impact, finish, score, addressFound, finishFound }
+}
+
 /** Force une suite strictement croissante d'index dans [0, n-1]. */
 function enforceOrder(frames: number[], n: number): number[] {
   const out = frames.slice()
@@ -97,145 +224,74 @@ function enforceOrder(frames: number[], n: number): number[] {
 export function detectEvents(
   c: CleanedPose,
   sig: EventSignals,
-): { events: SwingEvents; confidence: SwingEventConfidence } {
+): {
+  events: SwingEvents
+  confidence: SwingEventConfidence
+  /**
+   * Plage d'images sur laquelle le joueur est immobile à l'adresse.
+   *
+   * Les mesures de setup y sont moyennées plutôt que lues sur une image
+   * isolée : comparé à l'annotation humaine de GolfDB, choisir l'une ou
+   * l'autre borne de cette plage déplaçait l'inclinaison du buste de 7,9° au
+   * 90e centile — pour un seuil de déclenchement à 6°.
+   */
+  addressWindow: { start: number; end: number }
+} {
   const n = c.n
   const minLen = Math.max(2, Math.round(EVENTS.minStillDuration * c.fps))
 
-  // ---- 1. Adresse : dernière fenêtre d'immobilité avant le départ du club ----
-  const addrHi = Math.max(minLen, Math.floor(n * EVENTS.addressSearchFraction))
-  const addrRuns = stillRuns(sig.handSpeed, 0, Math.min(n - 1, addrHi), EVENTS.stillSpeed, minLen)
-  let address: number
-  let addressConf: number
-  if (addrRuns.length > 0) {
-    address = addrRuns[addrRuns.length - 1].end
-    addressConf = 0.9
-  } else {
-    const q = argMin(sig.handSpeed, 0, Math.min(n - 1, addrHi))
-    address = q >= 0 ? q : 0
-    addressConf = 0.45
+  // ---- 1. Candidats d'impact dans toute la vidéo ----
+  const separation = Math.max(2, Math.round(EVENTS.peakMinSeparationSec * c.fps))
+  const peaks = speedPeaks(sig.handSpeed, EVENTS.peakProminenceRatio, separation)
+  const globalPeakIdx = argMax(sig.handSpeed, 0, n - 1)
+  const globalPeakSpeed = globalPeakIdx >= 0 ? sig.handSpeed[globalPeakIdx] : 1
+
+  let best: Candidate | null = null
+  for (const peak of peaks) {
+    const candidate = buildCandidate(sig, peak, c.fps, n, minLen, globalPeakSpeed)
+    if (candidate && (!best || candidate.score > best.score)) best = candidate
   }
 
-  // ---- 2. Finish : première fenêtre d'immobilité de la fin ----
-  const finLo = Math.min(n - 1, Math.floor(n * (1 - EVENTS.finishSearchFraction)))
-  const finRuns = stillRuns(sig.handSpeed, finLo, n - 1, EVENTS.stillSpeed, minLen)
-  let finish: number
-  let finishConf: number
-  if (finRuns.length > 0) {
-    finish = finRuns[0].start
-    finishConf = 0.9
-  } else {
-    finish = n - 1
-    finishConf = 0.45
+  // ---- 2. Repli : aucun candidat crédible ----
+  if (!best) {
+    const top = argMin(sig.handsY, 1, n - 2)
+    const impact = argMax(sig.handsY, Math.max(1, top + 1), n - 1)
+    const fallbackAddress = Math.max(0, Math.min(top - 1, Math.round(n * 0.1)))
+    best = {
+      addressStart: fallbackAddress,
+      address: fallbackAddress,
+      top: Math.max(1, top),
+      impact: Math.max(2, impact),
+      finish: n - 1,
+      score: 0,
+      addressFound: false,
+      finishFound: false,
+    }
   }
-  if (finish <= address + 2) {
-    finish = n - 1
-    finishConf = Math.min(finishConf, 0.4)
-  }
+
+  const { address, top, impact, finish } = best
 
   // ---- 3. Hauteur des mains, référencée sur le bassin d'adresse ----
   const hipRef = hipCenter(c, address)
   const hipRefY = Number.isFinite(hipRef.y) ? hipRef.y : NaN
   for (let f = 0; f < n; f++) {
-    sig.handHeight[f] = Number.isFinite(hipRefY) && Number.isFinite(sig.handsY[f])
-      ? (hipRefY - sig.handsY[f]) / sig.scale
-      : NaN
+    sig.handHeight[f] =
+      Number.isFinite(hipRefY) && Number.isFinite(sig.handsY[f])
+        ? (hipRefY - sig.handsY[f]) / sig.scale
+        : NaN
   }
 
-  // ---- 4. Sommet et impact : structure du mouvement vertical des mains ----
-  //
-  // Un swing a une signature verticale invariante : les mains montent
-  // (backswing), redescendent (downswing), puis remontent (finish). Le sommet
-  // est le changement de sens montée→descente, l'impact le point le plus bas
-  // entre ce sommet et la remontée du finish.
-  //
-  // On n'utilise PAS le pic global de vitesse comme ancre : il échoue dès que
-  // la montée est aussi rapide que la descente (swing précipité de débutant),
-  // ce qui place l'« impact » en pleine montée. Le critère géométrique, lui,
-  // ne dépend pas du rapport des vitesses.
-  const dh = derivative(sig.handHeight, c.fps)
-  const dead = EVENTS.heightVelocityDeadband
-
-  /** Première frame de [lo, hi] où la vitesse verticale dépasse `sign * dead`. */
-  const firstCrossing = (lo: number, hi: number, sign: 1 | -1): number => {
-    for (let f = Math.max(0, lo); f <= Math.min(n - 1, hi); f++) {
-      const v = dh[f]
-      if (Number.isFinite(v) && sign * v > dead) return f
-    }
-    return -1
-  }
-
-  const takeaway = firstCrossing(address + 1, finish, 1)
-  const descentStart = takeaway >= 0 ? firstCrossing(takeaway + 1, finish, -1) : -1
-
-  let top = -1
-  if (takeaway >= 0 && descentStart > takeaway) {
-    top = argMax(sig.handHeight, takeaway, descentStart)
-    // Un simple tressautement ne doit pas passer pour un sommet de backswing.
-    const base = sig.handHeight[address]
-    const prominence = Number.isFinite(base) ? sig.handHeight[top] - base : NaN
-    if (Number.isFinite(prominence) && prominence < EVENTS.minTopProminence) top = -1
-  }
-
-  const speedPeak = argMax(sig.handSpeed, address + 1, finish)
-  let geometricTop = true
-  if (top < 0) {
-    // Repli : point le plus haut avant le pic de vitesse.
-    geometricTop = false
-    const hi = speedPeak > address + 1 ? speedPeak - 1 : finish
-    const fallback = argMax(sig.handHeight, address + 1, hi)
-    top = fallback >= 0 ? fallback : Math.round((address + finish) / 2)
-  }
-
-  const finishRise = firstCrossing(top + 1, finish, 1)
-  let impact = -1
-  let geometricImpact = true
-  if (finishRise > top) {
-    impact = argMin(sig.handHeight, top + 1, finishRise)
-  }
-  if (impact < 0) {
-    // Repli : pic de vitesse des mains après le sommet.
-    geometricImpact = false
-    const peakAfterTop = argMax(sig.handSpeed, top + 1, finish)
-    impact = peakAfterTop >= 0 ? peakAfterTop : Math.min(finish - 1, top + 1)
-  }
-
-  // Affinage : à l'impact, les mains repassent à la hauteur d'adresse.
-  const addressHandsY = sig.handsY[address]
-  if (Number.isFinite(addressHandsY)) {
-    let best = impact
-    let bestDelta = Infinity
-    for (let f = impact - EVENTS.impactRefineWindow; f <= impact + EVENTS.impactRefineWindow; f++) {
-      if (f <= top || f >= finish || !Number.isFinite(sig.handsY[f])) continue
-      const d = Math.abs(sig.handsY[f] - addressHandsY)
-      if (d < bestDelta) {
-        bestDelta = d
-        best = f
-      }
-    }
-    impact = best
-  }
-
-  const downswingFrames = impact - top
-  const impactConf = clamp(
-    0.95 * clamp(downswingFrames / QUALITY.minDownswingFrames, 0, 1) * (geometricImpact ? 1 : 0.6),
-    0.2,
-    0.95,
-  )
-  const topConf = clamp(
-    0.9 * (geometricTop ? 1 : 0.6) * clamp((top - address) / 3, 0, 1),
-    0.2,
-    0.9,
-  )
-
-  // ---- 6. Les 4 approximations basées sur la hauteur des mains ----
-  /** Première frame de [lo, hi] où handHeight franchit `level` vers le haut. */
+  // ---- 4. Les 4 approximations basées sur la hauteur des mains ----
   const crossUp = (lo: number, hi: number, level: number): number => {
-    for (let f = lo; f <= hi; f++) if (sig.handHeight[f] >= level) return f
+    for (let f = Math.max(0, lo); f <= Math.min(n - 1, hi); f++) {
+      if (sig.handHeight[f] >= level) return f
+    }
     return -1
   }
-  /** Dernière frame de [lo, hi] où handHeight est encore au-dessus de `level`. */
   const crossDown = (lo: number, hi: number, level: number): number => {
-    for (let f = hi; f >= lo; f--) if (sig.handHeight[f] >= level) return f
+    for (let f = Math.min(n - 1, hi); f >= Math.max(0, lo); f--) {
+      if (sig.handHeight[f] >= level) return f
+    }
     return -1
   }
 
@@ -259,18 +315,32 @@ export function detectEvents(
     events[name] = ordered[i]
   })
 
-  // Les événements « club » sont plafonnés à 0.6 : ce sont des approximations.
-  const proxyConf = 0.6
+  // ---- 5. Confiances ----
+  const downswingFrames = events.impact - events.top
+  // La confiance du candidat retenu porte toute la détection : un score faible
+  // signale une vidéo où aucun mouvement ne ressemble vraiment à un swing.
+  const structural = clamp(0.35 + 0.6 * best.score, 0.2, 0.95)
+  const impactConf = clamp(
+    structural * clamp(downswingFrames / QUALITY.minDownswingFrames, 0.3, 1),
+    0.2,
+    0.95,
+  )
+  const proxyConf = clamp(structural * 0.65, 0.2, 0.6)
+
   const confidence: SwingEventConfidence = {
-    address: addressConf,
-    toeUp: toeUpRaw >= 0 ? proxyConf : 0.3,
-    midBackswing: midBackRaw >= 0 ? proxyConf : 0.3,
-    top: topConf,
-    midDownswing: midDownRaw >= 0 ? proxyConf : 0.3,
+    address: best.addressFound ? structural : structural * 0.5,
+    toeUp: toeUpRaw >= 0 ? proxyConf : proxyConf * 0.5,
+    midBackswing: midBackRaw >= 0 ? proxyConf : proxyConf * 0.5,
+    top: structural,
+    midDownswing: midDownRaw >= 0 ? proxyConf : proxyConf * 0.5,
     impact: impactConf,
-    midFollowThrough: midFollowRaw >= 0 ? proxyConf : 0.3,
-    finish: finishConf,
+    midFollowThrough: midFollowRaw >= 0 ? proxyConf : proxyConf * 0.5,
+    finish: best.finishFound ? structural : structural * 0.5,
   }
 
-  return { events, confidence }
+  return {
+    events,
+    confidence,
+    addressWindow: { start: Math.min(best.addressStart, events.address), end: events.address },
+  }
 }

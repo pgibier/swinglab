@@ -63,13 +63,13 @@ export function analyzeSequence(seq: PoseSequence): AnalysisOutcome {
   }
 
   const sig = computeSignals(c)
-  const { events, confidence: eventConfidence } = detectEvents(c, sig)
+  const { events, confidence: eventConfidence, addressWindow } = detectEvents(c, sig)
   const ref = buildReference(c, events.address, events.top)
   const metrics = computeMetrics(c, ref, sig)
 
   const quality = computeQuality(coverage, Number.isFinite(meanVis) ? meanVis : 0, c.fps, events.impact - events.top)
 
-  const ctx: FaultContext = { c, ref, events, eventConfidence, metrics, quality }
+  const ctx: FaultContext = { c, ref, events, addressWindow, eventConfidence, metrics, quality }
 
   const faults: FaultResult[] = []
   const notEvaluatedList: SwingReport['notEvaluated'] = []

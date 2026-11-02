@@ -58,6 +58,37 @@ export const EVENTS = {
   shoulderLevelHeight: 0.75,
   /** Fenêtre (frames) de raffinement de l'impact autour du candidat géométrique. */
   impactRefineWindow: 3,
+
+  // --- Recherche globale du swing ---
+  //
+  // Une vidéo réelle ne contient pas forcément « un swing entouré
+  // d'immobilité » : swing d'essai, replacement, seconde balle, joueur qui
+  // entre dans le champ. Une recherche séquentielle verrouille alors sur le
+  // mauvais mouvement. On énumère donc les candidats d'impact dans TOUTE la
+  // vidéo, on reconstruit un swing autour de chacun, et on retient le plus
+  // plausible physiquement.
+  /** Hauteur minimale d'un pic de vitesse candidat, en fraction du pic global. */
+  peakProminenceRatio: 0.4,
+  /** Écart minimal (s) entre deux candidats d'impact. */
+  peakMinSeparationSec: 0.5,
+  /** Fenêtre de recherche du sommet en amont d'un candidat (s). */
+  maxBackswingSec: 2.5,
+  /** Durées plausibles d'un backswing (s). */
+  minBackswingSec: 0.25,
+  /** Durées plausibles d'une descente (s). */
+  minDownswingSec: 0.07,
+  maxDownswingSec: 0.9,
+  /** Chute de hauteur de mains entre sommet et impact, en U : en deçà, ce n'est pas un swing. */
+  minHandDropU: 0.55,
+  /** Chute de hauteur au-delà de laquelle le candidat est pleinement crédité. */
+  idealHandDropU: 0.9,
+  /** Bornes de tempo acceptables pour un candidat (ratio montée/descente). */
+  candidateTempoMin: 1.2,
+  candidateTempoMax: 9,
+  /** Tolérance (s) entre le point bas des mains et le pic de vitesse. */
+  peakAlignSec: 0.3,
+  /** Délai minimal (s) après l'impact avant de chercher le finish. */
+  finishDelaySec: 0.25,
   /**
    * Zone morte sur la vitesse verticale des mains (U/s) pour détecter les
    * changements de sens (montée → descente → finish) sans réagir au bruit.
