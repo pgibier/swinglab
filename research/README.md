@@ -65,10 +65,18 @@ for v in corpus/*.mp4; do
       -o "points/$(basename "${v%.*}").json"
 done
 
-# 2. agréger en centiles, par vue
-python build_reference.py --landmarks-dir points \
+# 2. faire tourner le moteur sur tout le corpus, en UN processus
+npx --prefix ../web tsx ../web/scripts/analyze.ts --batch points -o metrics.jsonl
+
+# 3. agréger en centiles, par vue
+python build_reference.py --batch-results metrics.jsonl \
     -o ../web/public/reference/profile.json --label "pros — 180 swings"
 ```
+
+L'étape 2 compte : lancer `npx tsx` une fois par clip coûte environ 1,5 s de
+démarrage, soit plus de 30 minutes de temps mort sur 1 400 clips — davantage
+que l'analyse elle-même. Le mode corpus traite 60 clips en moins de 4 secondes.
+`--landmarks-dir` reste accepté pour quelques dizaines de clips.
 
 Déposé dans `web/public/reference/profile.json`, le profil est chargé
 automatiquement par l'app et la comparaison apparaît sous chaque défaut. En

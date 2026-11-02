@@ -7,6 +7,9 @@
  * que par les scripts de validation. Dupliquer le moteur en Python serait le
  * meilleur moyen de valider une version et d'en livrer une autre.
  *
+ *   npx tsx scripts/analyze.ts --batch dossier -o out.jsonl
+ *                                                     → tout un corpus en un
+ *                                                       seul processus
  *   npx tsx scripts/analyze.ts points.json            → rapport complet (JSON)
  *   npx tsx scripts/analyze.ts points.json --events   → uniquement les phases
  *   npx tsx scripts/analyze.ts points.json --metrics  → une valeur scalaire par règle
@@ -18,28 +21,111 @@
  *     "frames": [ [ {x,y,z,visibility} × 33 ] | null, ... ] }
  */
 
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { analyzeSequence } from '../src/core/report'
 import { SWING_EVENTS, type PoseSequence } from '../src/core/types'
 
-const [path, ...flags] = process.argv.slice(2)
+const argv = process.argv.slice(2)
+
+/** Complète une séquence partielle lue depuis un fichier. */
+function toSequence(raw: Partial<PoseSequence>): PoseSequence {
+  if (!Array.isArray(raw.frames) || typeof raw.fps !== 'number') {
+    throw new Error('« frames » (tableau) et « fps » (nombre) sont requis')
+  }
+  const fps = raw.fps
+  return {
+    frames: raw.frames,
+    fps,
+    timestamps: raw.timestamps ?? raw.frames.map((_, i) => i / fps),
+    videoWidth: raw.videoWidth ?? 1080,
+    videoHeight: raw.videoHeight ?? 1920,
+  }
+}
+
+/**
+ * Mode corpus : un seul processus pour tout un dossier.
+ *
+ * Indispensable à l'échelle : lancer `npx tsx` une fois par clip coûte ~1,5 s
+ * de démarrage, soit plus de 30 minutes de pur temps mort sur 1 400 clips —
+ * davantage que l'analyse elle-même.
+ */
+if (argv[0] === '--batch') {
+  const dir = argv[1]
+  const outIndex = argv.indexOf('-o')
+  const outPath = outIndex > 0 ? argv[outIndex + 1] : undefined
+  if (!dir || !outPath) {
+    console.error('Usage : npx tsx scripts/analyze.ts --batch <dossier> -o <sortie.jsonl>')
+    process.exit(2)
+  }
+
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith('.json') && f !== 'corpus.json' && f !== 'labels.json')
+    .sort()
+
+  const lines: string[] = []
+  let ok = 0
+  let failed = 0
+
+  for (const file of files) {
+    const id = file.replace(/\.json$/, '')
+    try {
+      const sequence = toSequence(JSON.parse(readFileSync(join(dir, file), 'utf8')))
+      const outcome = analyzeSequence(sequence)
+      if (!outcome.ok) {
+        failed++
+        lines.push(JSON.stringify({ id, ok: false, error: outcome.error }))
+        continue
+      }
+      const r = outcome.report
+      const metrics: Record<string, number> = {}
+      for (const fault of r.faults) {
+        if (Number.isFinite(fault.value)) metrics[fault.id] = fault.value
+      }
+      ok++
+      lines.push(
+        JSON.stringify({
+          id,
+          ok: true,
+          view: r.meta.view,
+          viewConfidence: r.meta.viewConfidence,
+          handedness: r.meta.handedness,
+          fps: r.meta.fps,
+          poseCoverage: r.meta.quality.poseCoverage,
+          meanVisibility: r.meta.quality.meanVisibility,
+          downswingFrames: r.meta.quality.downswingFrames,
+          events: r.events,
+          score: r.score,
+          metrics,
+        }),
+      )
+    } catch (err) {
+      failed++
+      lines.push(JSON.stringify({ id, ok: false, error: String(err) }))
+    }
+    if ((ok + failed) % 100 === 0) {
+      console.error(`  … ${ok + failed}/${files.length}`)
+    }
+  }
+
+  writeFileSync(outPath, lines.join('\n') + '\n')
+  console.error(`✓ ${ok} analysés, ${failed} en échec → ${outPath}`)
+  process.exit(0)
+}
+
+const [path, ...flags] = argv
 if (!path) {
-  console.error('Usage : npx tsx scripts/analyze.ts <points.json> [--events|--summary]')
+  console.error('Usage : npx tsx scripts/analyze.ts <points.json> [--events|--metrics|--summary]')
+  console.error('   ou : npx tsx scripts/analyze.ts --batch <dossier> -o <sortie.jsonl>')
   process.exit(2)
 }
 
-const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<PoseSequence>
-if (!Array.isArray(raw.frames) || typeof raw.fps !== 'number') {
-  console.error('Fichier invalide : « frames » (tableau) et « fps » (nombre) sont requis.')
+let sequence: PoseSequence
+try {
+  sequence = toSequence(JSON.parse(readFileSync(path, 'utf8')) as Partial<PoseSequence>)
+} catch (err) {
+  console.error(`Fichier invalide : ${err instanceof Error ? err.message : String(err)}`)
   process.exit(2)
-}
-
-const sequence: PoseSequence = {
-  frames: raw.frames,
-  fps: raw.fps,
-  timestamps: raw.timestamps ?? raw.frames.map((_, i) => i / raw.fps!),
-  videoWidth: raw.videoWidth ?? 1080,
-  videoHeight: raw.videoHeight ?? 1920,
 }
 
 const outcome = analyzeSequence(sequence)

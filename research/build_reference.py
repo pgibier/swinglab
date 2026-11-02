@@ -15,7 +15,12 @@ valeurs aberrantes qui décalent les centiles. Les clips sont donc écartés
 sur des critères explicites, et le taux de rejet est affiché — c'est lui qui
 dira si un corpus en basse résolution est exploitable ou non.
 
-    python build_reference.py --landmarks-dir data/points -o reference_profile.json
+    # voie rapide : un seul processus pour tout le corpus
+    npx tsx ../web/scripts/analyze.ts --batch data/points -o data/metrics.jsonl
+    python build_reference.py --batch-results data/metrics.jsonl -o profile.json
+
+    # voie simple : un processus par clip (lent au-delà de quelques dizaines)
+    python build_reference.py --landmarks-dir data/points -o profile.json
 """
 
 from __future__ import annotations
@@ -59,7 +64,12 @@ def engine_metrics(points_path: Path) -> dict | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--landmarks-dir", type=Path, required=True)
+    parser.add_argument("--landmarks-dir", type=Path,
+                        help="dossier de points clés ; un processus moteur par clip")
+    parser.add_argument("--batch-results", type=Path,
+                        help="sortie .jsonl de « analyze.ts --batch » ; très préférable "
+                             "au-delà de quelques dizaines de clips (un démarrage de "
+                             "processus par clip coûte plus cher que l'analyse)")
     parser.add_argument("-o", "--out", type=Path, required=True)
     parser.add_argument(
         "--corpus",
@@ -77,19 +87,29 @@ def main() -> None:
                         help="nombre minimal de clips par (vue, métrique) pour publier des centiles")
     args = parser.parse_args()
 
-    files = sorted(args.landmarks_dir.glob("*.json"))
-    files = [f for f in files if f.name not in {"corpus.json", "labels.json"}]
-    if not files:
-        raise SystemExit(f"Aucun fichier de points clés dans {args.landmarks_dir}")
+    if not args.landmarks_dir and not args.batch_results:
+        raise SystemExit("Fournis --batch-results (rapide) ou --landmarks-dir.")
+
+    if args.batch_results:
+        results = []
+        for line in args.batch_results.read_text().splitlines():
+            line = line.strip()
+            if line:
+                results.append(json.loads(line))
+    else:
+        files = sorted(args.landmarks_dir.glob("*.json"))
+        files = [f for f in files if f.name not in {"corpus.json", "labels.json"}]
+        if not files:
+            raise SystemExit(f"Aucun fichier de points clés dans {args.landmarks_dir}")
+        results = [engine_metrics(f) for f in files]
 
     # values[vue][métrique] = liste de valeurs
     values: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     kept = 0
     rejected: dict[str, int] = defaultdict(int)
 
-    for path in files:
-        result = engine_metrics(path)
-        if result is None:
+    for result in results:
+        if result is None or not result.get("ok"):
             rejected["analyse refusée"] += 1
             continue
         if result["view"] == "unknown":
@@ -109,7 +129,7 @@ def main() -> None:
             values[result["view"]][metric].append(float(value))
         kept += 1
 
-    total = len(files)
+    total = len(results)
     print(f"\nClips retenus : {kept}/{total} ({kept / total:.0%})")
     for reason, n in sorted(rejected.items(), key=lambda kv: -kv[1]):
         print(f"  écartés — {reason} : {n}")
