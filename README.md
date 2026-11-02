@@ -81,6 +81,17 @@ un swing propre, et rester muette dans la vue où le défaut est invisible.
 Le test navigateur nécessite Playwright, volontairement hors dépendances du
 projet (~300 Mo) : `npm i -D playwright && npx playwright install chromium`.
 
+### Profil de référence
+
+L'app peut situer chaque mesure dans un corpus de référence (« ton sway est à
+26 %, la référence est à 3,5 % en médiane ») plutôt que de se contenter d'un
+seuil. Le corpus se construit avec
+[`research/build_reference.py`](research/README.md) et se dépose dans
+`web/public/reference/profile.json` ; l'app le charge alors automatiquement.
+
+**Aucun profil n'est livré** tant qu'aucun corpus réel n'a été mesuré : un
+profil synthétique serait trompeur.
+
 Validation de la détection de phases : voir [`research/`](research/README.md).
 Référence actuelle sur jeu synthétique — **97,5 % des phases à ±3 images**,
 erreur moyenne 0,85 image, sur des cadences de 30 à 240 i/s.
@@ -121,9 +132,12 @@ Avec `npm run setup:assets -- --models full`, les modèles sont inclus dans
 ## Licences
 
 - **MediaPipe** — Apache-2.0, utilisable sans contrainte.
-- **GolfDB** — CC BY-NC 4.0, **non commercial**. Utilisé uniquement pour
-  *mesurer* la détection de phases (cf. `research/`). Aucun poids entraîné
-  dessus n'est embarqué dans l'application.
+- **GolfDB** — le dépôt place son **code** sous CC BY-NC 4.0 et n'énonce
+  **aucune licence** pour les annotations ni pour les vidéos, qui sont des
+  extraits YouTube appartenant à des diffuseurs. C'est donc plus contraignant
+  qu'un simple « non commercial ». Utilisé uniquement pour *mesurer* la
+  détection de phases (cf. `research/`) ; rien n'en est embarqué dans
+  l'application.
 - **Ultralytics / YOLO-pose** — écarté volontairement : AGPL-3.0, incompatible
   avec une éventuelle version commerciale fermée.
 

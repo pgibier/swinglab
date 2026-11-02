@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """Convertit les annotations GolfDB (golfDB.mat) en labels.json exploitables.
 
-⚠️ LICENCE : GolfDB est distribué sous CC BY-NC 4.0 — usage NON COMMERCIAL.
-Ce jeu de données sert ici uniquement à MESURER la qualité de la détection de
-phases. Aucun poids entraîné sur GolfDB, et aucune de ses vidéos, ne doit être
-embarqué dans l'application livrée.
+⚠️ LICENCE — à lire avant tout usage.
+Le dépôt GolfDB annonce « The code in this repository is licensed under a
+Creative Commons Attribution-NonCommercial 4.0 International License ». Cette
+licence couvre le CODE. Le dépôt n'énonce AUCUNE licence pour les annotations,
+ni pour les vidéos — qui sont des extraits YouTube appartenant à des tiers
+(diffuseurs). Autrement dit, la situation est plus restrictive qu'un simple
+« non commercial », pas moins.
+
+En conséquence : ce jeu sert uniquement à MESURER la détection de phases en
+recherche. Ni les vidéos, ni des poids entraînés dessus ne doivent être
+embarqués dans l'application livrée.
 
 Source : https://github.com/wmcnally/golfdb (McNally et al., CVPRW 2019)
 

@@ -119,4 +119,6 @@ chaque pénalité par cette confiance.
 - **RTMPose côté serveur** : l'interface d'extraction est isolée, le moteur
   n'aurait pas à changer.
 - **SwingNet** : à comparer sur GolfDB (cf. `research/`), en gardant à l'esprit
-  que sa licence CC BY-NC interdit de l'embarquer dans un produit commercial.
+  que le code de GolfDB est sous CC BY-NC et que ses vidéos sont des extraits
+  YouTube de tiers sans licence énoncée — donc utilisables pour mesurer, pas
+  pour livrer.

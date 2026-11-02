@@ -2,9 +2,10 @@
  * Détection des 8 événements du swing (nomenclature GolfDB).
  *
  * Choix d'implémentation : cinématique, pas de réseau de neurones.
- * Raison : SwingNet / GolfDB sont sous licence CC BY-NC 4.0 (non commercial),
- * et une règle sait EXPLIQUER pourquoi elle a déclenché — ce qui est le produit
- * qu'on veut livrer à un débutant.
+ * Raison : le code de GolfDB/SwingNet est publié sous CC BY-NC 4.0 (non
+ * commercial) et ses vidéos sont des extraits YouTube de tiers sans licence
+ * énoncée ; et surtout, une règle sait EXPLIQUER pourquoi elle a déclenché —
+ * ce qui est le produit qu'on veut livrer à un débutant.
  *
  * Honnêteté sur les limites : 4 des 8 événements (toe-up, mi-backswing,
  * mi-descente, mi-finish) sont définis par la POSITION DU CLUB dans GolfDB.

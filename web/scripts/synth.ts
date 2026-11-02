@@ -38,6 +38,8 @@ export interface SynthOptions {
   kneeAngleDeg?: number
   /** Écartement des chevilles, en multiples de la largeur d'épaules. */
   stanceRatio?: number
+  /** Oscillation du bassin pendant le finish, en U (déséquilibre). */
+  finishWobbleU?: number
   /** Durée de la montée, en secondes. */
   backswingSec?: number
   /** Durée de la descente, en secondes. */
@@ -111,6 +113,17 @@ export function synthSwing(opts: SynthOptions): PoseSequence {
   const spineTilt0 = opts.spineTiltDeg ?? 32
   const kneeAngle = opts.kneeAngleDeg ?? 163
 
+  /**
+   * La tête n'est PAS solidaire du bassin : un bon joueur garde la tête
+   * sensiblement en place pendant que les hanches glissent vers la cible —
+   * c'est l'idée de « rester derrière la balle ». Un couplage rigide
+   * produirait un déplacement de tête égal au glissement du bassin, donc un
+   * faux positif systématique sur la stabilité de tête.
+   */
+  const HEAD_COUPLING = 0.25
+  const shoulderX0 = dtl ? Math.sin(spineTilt0 * DEG) * U * ballSign : 0
+  const shoulderY0 = HIP_Y - Math.cos((dtl ? spineTilt0 : 0) * DEG) * U
+
   const frames: Landmark[][] = []
   const timestamps: number[] = []
 
@@ -144,6 +157,9 @@ export function synthSwing(opts: SynthOptions): PoseSequence {
       hipX = smooth(-(opts.swayU ?? 0) * U * targetSign, (opts.slideU ?? 0) * U * targetSign, p)
     } else if (phase === 'follow' || phase === 'finish') {
       hipX = (opts.slideU ?? 0) * U * targetSign
+    }
+    if (phase === 'finish' && opts.finishWobbleU) {
+      hipX += Math.sin(p * Math.PI * 4) * opts.finishWobbleU * U * targetSign
     }
 
     // Early extension : le bassin avance vers la balle pendant la descente.
@@ -207,8 +223,12 @@ export function synthSwing(opts: SynthOptions): PoseSequence {
       : phase === 'back' ? smooth(0, (opts.headShiftU ?? 0) * U, p)
       : (opts.headShiftU ?? 0) * U
     const nose: Hu = {
-      x: shoulder.x - 0.1 * U * targetSign + headMove * targetSign,
-      y: shoulder.y - 0.45 * U,
+      x:
+        shoulderX0 -
+        0.1 * U * targetSign +
+        headMove * targetSign +
+        (shoulder.x - shoulderX0) * HEAD_COUPLING,
+      y: shoulderY0 - 0.45 * U + (shoulder.y - shoulderY0) * HEAD_COUPLING,
     }
 
     // --- membres ---

@@ -184,5 +184,70 @@ console.log('\n[12] Appuis trop serrés (0,5× la largeur d’épaules)')
 }
 
 // ---------------------------------------------------------------------------
+console.log('\n[13] Déséquilibre au finish')
+// ---------------------------------------------------------------------------
+{
+  // Un vacillement franc doit sortir en « marqué » au minimum ; un léger
+  // report d'appui reste normal et ne doit pas être puni.
+  const r = analyze('finish wobble', { view: 'face_on', finishWobbleU: 0.22 })
+  const s = sev(r, 'finish_balance')
+  check('déséquilibre franc au finish détecté', s === 'major' || s === 'moderate',
+    `${s} (${val(r, 'finish_balance')} %)`)
+  const calm = analyze('finish calme', { view: 'face_on', finishWobbleU: 0.02 })
+  check('léger report d\u2019appui non pénalisé', sev(calm, 'finish_balance') === 'none',
+    `${sev(calm, 'finish_balance')} (${val(calm, 'finish_balance')} %)`)
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n[14] Corpus de référence : un bon swing ne doit pas déclencher')
+// ---------------------------------------------------------------------------
+{
+  // Garde-fou le plus important de la suite : si une règle se déclenche sur
+  // des swings de bon niveau, elle produit du faux positif en production.
+  // C'est précisément ce qu'avait révélé le profil de référence sur la
+  // stabilité de tête.
+  const views = ['face_on', 'down_the_line'] as const
+  let majors = 0
+  let triggered = 0
+  let total = 0
+  const culprits = new Map<string, number>()
+  for (const view of views) {
+    for (let i = 0; i < 12; i++) {
+      // Variation déterministe autour de valeurs de bon joueur.
+      const k = i / 11
+      const r = analyze(`ref ${view} ${i}`, {
+        view,
+        fps: [60, 120, 240][i % 3],
+        backswingSec: 0.7 + 0.14 * k,
+        downswingSec: (0.7 + 0.14 * k) / (2.6 + 0.7 * k),
+        swayU: 0.02 + 0.04 * k,
+        slideU: 0.1 + 0.08 * k,
+        reversePivotDeg: -6 + 4 * k,
+        headShiftU: 0.03 + 0.05 * k,
+        earlyExtensionU: 0.01 + 0.04 * k,
+        spineTiltDeg: 29 + 7 * k,
+        postureLossDeg: 1 + 4 * k,
+        leadElbowFollowDeg: 176 - 12 * k,
+        kneeAngleDeg: 156 + 10 * k,
+        stanceRatio: 0.95 + 0.25 * k,
+      })
+      total++
+      for (const f of r.faults) {
+        if (!f.detected) continue
+        triggered++
+        culprits.set(f.id, (culprits.get(f.id) ?? 0) + 1)
+        if (f.severity === 'major') majors++
+      }
+    }
+  }
+  const worst = [...culprits.entries()].sort((a, b) => b[1] - a[1])
+    .map(([id, n]) => `${id}×${n}`).join(', ')
+  check(`aucun défaut « important » sur ${total} swings de référence`, majors === 0, worst)
+  check('moins d\u2019un défaut léger par swing en moyenne', triggered / total < 1,
+    `${(triggered / total).toFixed(2)} défaut(s)/swing — ${worst}`)
+  console.log(`     ${total} swings, ${triggered} déclenchements${worst ? ` (${worst})` : ''}`)
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${failures === 0 ? '✓ TOUS LES TESTS PASSENT' : '✗ ÉCHECS'} — ${checks - failures}/${checks} vérifications\n`)
 process.exit(failures === 0 ? 0 : 1)

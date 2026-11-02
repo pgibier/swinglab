@@ -59,18 +59,21 @@ export const finishBalance: Rule = (ctx) => {
   const skip = requireView(ctx, id, label, ['face_on', 'down_the_line'])
   if (skip) return skip
 
-  const { finish } = ctx.events
-  const windowFrames = Math.max(3, Math.round(0.4 * ctx.c.fps))
-  const end = Math.min(ctx.c.n - 1, finish + windowFrames)
-  if (end - finish < 3) {
+  const { impact, finish } = ctx.events
+  const { windowStartSec, windowLengthSec } = FAULTS.finishBalance
+  // Fenêtre ancrée sur l'impact : indépendante de la détection d'une phase
+  // « finish » stable, qui par définition n'existe pas quand le joueur vacille.
+  const start = Math.min(ctx.c.n - 1, impact + Math.round(windowStartSec * ctx.c.fps))
+  const end = Math.min(ctx.c.n - 1, start + Math.round(windowLengthSec * ctx.c.fps))
+  if (end - start < 3) {
     return notEvaluated(
       id, label,
-      'La vidéo s’arrête trop tôt après le finish. Continue de filmer 1 seconde après la fin du swing.',
+      'La vidéo s’arrête trop tôt après l’impact. Continue de filmer une bonne seconde après la fin du swing.',
     )
   }
 
-  const hipSeries = ctx.metrics.hipLateral.slice(finish, end + 1)
-  const headSeries = ctx.metrics.headShift.slice(finish, end + 1)
+  const hipSeries = ctx.metrics.hipLateral.slice(start, end + 1)
+  const headSeries = ctx.metrics.headShift.slice(start, end + 1)
   const hipStd = stdFinite(hipSeries)
   const headStd = stdFinite(headSeries)
   const value = Math.max(
@@ -84,11 +87,11 @@ export const finishBalance: Rule = (ctx) => {
 
   return makeFault({
     id, label, category: 'finish', severity,
-    confidence: ruleConfidence(ctx, [finish, end], ['finish']),
+    confidence: ruleConfidence(ctx, [start, end], ['impact']),
     value: Math.round(value * 1000) / 10,
     unit: '% du torse (instabilité)',
     threshold: Math.round(minor * 1000) / 10,
-    evidenceFrame: Math.min(ctx.c.n - 1, finish + Math.round(windowFrames / 2)),
+    evidenceFrame: Math.round((start + end) / 2),
     referenceFrame: finish,
     explanation: severity === 'none'
       ? 'Tu tiens ton finish sans vaciller : signe que le swing est resté équilibré du début à la fin.'

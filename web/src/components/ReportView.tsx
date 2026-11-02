@@ -1,15 +1,18 @@
 import { useState } from 'react'
 import { FaultCard } from './FaultCard'
 import { SEVERITY_LABELS, severityClasses } from '../lib/labels'
+import { statsFor, type ReferenceProfile } from '../core/reference'
 import type { FaultResult, SwingReport } from '../core/types'
 
 interface Props {
   report: SwingReport
   selectedFaultId: string | null
   onSelectFault: (fault: FaultResult) => void
+  /** Corpus de comparaison, absent tant qu'aucun n'a été publié. */
+  reference?: ReferenceProfile | null
 }
 
-export function ReportView({ report, selectedFaultId, onSelectFault }: Props) {
+export function ReportView({ report, selectedFaultId, onSelectFault, reference }: Props) {
   const [showGood, setShowGood] = useState(false)
   const detected = report.faults.filter((f) => f.detected)
   const good = report.faults.filter((f) => !f.detected)
@@ -28,6 +31,8 @@ export function ReportView({ report, selectedFaultId, onSelectFault }: Props) {
                 fault={fault}
                 selected={selectedFaultId === fault.id}
                 onSelect={() => onSelectFault(fault)}
+                referenceStats={statsFor(reference ?? null, report.meta.view, fault.id)}
+                referenceLabel={reference?.label}
               />
             ))}
           </ul>

@@ -9,6 +9,7 @@
  *
  *   npx tsx scripts/analyze.ts points.json            → rapport complet (JSON)
  *   npx tsx scripts/analyze.ts points.json --events   → uniquement les phases
+ *   npx tsx scripts/analyze.ts points.json --metrics  → une valeur scalaire par règle
  *   npx tsx scripts/analyze.ts points.json --summary  → résumé lisible
  *
  * Format d'entrée attendu :
@@ -49,7 +50,28 @@ if (!outcome.ok) {
 
 const { report } = outcome
 
-if (flags.includes('--events')) {
+if (flags.includes('--metrics')) {
+  // Chaque règle produit exactement un scalaire, dans une unité documentée.
+  // C'est ce vecteur qu'on agrège sur un corpus pour bâtir un profil de
+  // référence (cf. research/build_reference.py) : pas besoin d'un second
+  // jeu de métriques à maintenir en parallèle des règles.
+  const metrics: Record<string, number> = {}
+  for (const fault of report.faults) {
+    if (Number.isFinite(fault.value)) metrics[fault.id] = fault.value
+  }
+  console.log(
+    JSON.stringify({
+      ok: true,
+      view: report.meta.view,
+      viewConfidence: report.meta.viewConfidence,
+      handedness: report.meta.handedness,
+      fps: report.meta.fps,
+      poseCoverage: report.meta.quality.poseCoverage,
+      downswingFrames: report.meta.quality.downswingFrames,
+      metrics,
+    }),
+  )
+} else if (flags.includes('--events')) {
   console.log(JSON.stringify({ ok: true, events: report.events, eventConfidence: report.eventConfidence }))
 } else if (flags.includes('--summary')) {
   console.log(`Vue        : ${report.meta.view} (${Math.round(report.meta.viewConfidence * 100)} %)`)

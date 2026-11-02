@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { UploadScreen } from './components/UploadScreen'
 import { Processing } from './components/Processing'
 import { ScoreHeader } from './components/ScoreHeader'
@@ -8,6 +8,8 @@ import { ReportView } from './components/ReportView'
 import { ModelLoadError, loadLandmarker, type LoadedLandmarker } from './pose/mediapipe'
 import { extractPoseSequence, loadVideo } from './pose/extract'
 import { analyzeSequence } from './core'
+import { loadReferenceProfile } from './lib/loadReference'
+import type { ReferenceProfile } from './core/reference'
 import type { FaultResult, PoseSequence, SwingReport } from './core/types'
 
 interface Analysis {
@@ -28,6 +30,19 @@ export default function App() {
   const [selectedFault, setSelectedFault] = useState<FaultResult | null>(null)
   const [seekRequest, setSeekRequest] = useState<SeekRequest | null>(null)
   const [currentFrame, setCurrentFrame] = useState(0)
+  const [reference, setReference] = useState<ReferenceProfile | null>(null)
+
+  // Le corpus de comparaison est facultatif : s'il n'est pas publié avec le
+  // site, l'app n'affiche simplement aucune comparaison.
+  useEffect(() => {
+    let cancelled = false
+    void loadReferenceProfile().then((profile) => {
+      if (!cancelled) setReference(profile)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Le détecteur est coûteux à créer : on le garde pour les analyses suivantes.
   const landmarkerRef = useRef<LoadedLandmarker | null>(null)
@@ -196,6 +211,7 @@ export default function App() {
 
         <ReportView
           report={data.report}
+          reference={reference}
           selectedFaultId={selectedFault?.id ?? null}
           onSelectFault={(fault) => {
             setSelectedFault(fault)

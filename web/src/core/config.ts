@@ -138,8 +138,22 @@ export const FAULTS = {
   chickenWing: { idealMin: 160, minor: 8, major: 26 },
   /** Ratio durée du backswing / durée de la descente. */
   tempo: { idealMin: 2.3, idealMax: 3.8, minor: 0.5, major: 1.2 },
-  /** Instabilité du bassin pendant le finish (écart-type en U). */
-  finishBalance: { ideal: 0.03, minor: 0.06, major: 0.11 },
+  /**
+   * Instabilité du bassin et de la tête pendant le finish (écart-type en U).
+   * La fenêtre est ancrée sur l'IMPACT, pas sur la phase « finish » détectée :
+   * un joueur qui ne tient pas son finish ne produit aucune fenêtre
+   * d'immobilité, et la règle se serait tue sur le cas même qu'elle doit
+   * signaler.
+   */
+  finishBalance: {
+    ideal: 0.03,
+    minor: 0.06,
+    major: 0.11,
+    /** Début de la fenêtre, en secondes après l'impact. */
+    windowStartSec: 0.45,
+    /** Longueur de la fenêtre, en secondes. */
+    windowLengthSec: 0.5,
+  },
 } as const
 
 /** Poids de chaque gravité dans le score global sur 100. */
