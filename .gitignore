@@ -1,0 +1,26 @@
+# deps
+node_modules/
+# build
+dist/
+*.tsbuildinfo
+# env
+.env
+.env.local
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+# research data & models (lourds / licence non-commerciale)
+research/data/
+research/models/
+research/out/
+*.task
+*.onnx
+*.pth.tar
+# vidéos de test (donnees personnelles)
+samples/
+*.mp4
+*.mov
+# os
+.DS_Store
