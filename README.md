@@ -89,9 +89,12 @@ seuil. Le corpus se construit avec
 [`research/build_reference.py`](research/README.md) et se dépose dans
 `web/public/reference/profile.json` ; l'app le charge alors automatiquement.
 
-**Un profil réel est livré** : le tempo de **1 045 swings de professionnels**,
-mesuré sur les annotations de GolfDB. Les onze autres indicateurs n'ont pas
-encore de référence et n'affichent donc aucune comparaison.
+**Un profil réel est livré** : les **12 indicateurs** mesurés sur 409 swings de
+professionnels, par vue. La comparaison apparaît sous chaque défaut du rapport.
+
+Le profil est construit en faisant tourner **le moteur livré** sur le corpus,
+jamais une implémentation parallèle : référence et mesure utilisateur passent
+par le même code, donc les biais de définition s'annulent au lieu de s'ajouter.
 
 Validation de la détection de phases : voir [`research/`](research/README.md).
 Référence actuelle sur jeu synthétique — **97,5 % des phases à ±3 images**,
@@ -117,14 +120,21 @@ Avec `npm run setup:assets -- --models full`, les modèles sont inclus dans
   fiable, et à 30 i/s une tête de club est un trait flou. Les 4 phases que
   GolfDB définit par la position du club sont donc des approximations basées
   sur la hauteur des mains, avec une fiabilité plafonnée à 60 % dans l'app.
-- **Un seul seuil sur douze est calé sur des données.** Le tempo l'est, sur
-  1 399 swings de pros annotés — et la mesure a corrigé une vraie erreur : la
-  bande « 3:1 » de l'enseignement classait **33 % des professionnels en montée
-  trop lente**. La vraie distribution est centrée sur 3,39 avec un 90ᵉ centile
-  à 4,71. Les onze autres seuils viennent de la littérature biomécanique, sans
-  calage sur données — il n'existe aucun jeu public étiqueté en défauts de
-  swing. Tous sont regroupés dans
+- **Les douze seuils sont calés sur 409 swings de professionnels**, filtrés sur
+  la qualité de pose, la fiabilité des phases et la stabilité de la caméra.
+  Règle de calage : « léger » au 90ᵉ centile du corpus, « important » au 98ᵉ.
+  Avant ce calage, les seuils venaient de la littérature et de l'enseignement —
+  et **six règles sur douze se déclenchaient sur plus d'un quart des
+  professionnels**, la stabilité de tête sur 84 % d'entre eux. Aucune ne dépasse
+  désormais 22 %. Tout est dans
   [`web/src/core/config.ts`](web/src/core/config.ts).
+- **Mais le corpus est fait d'images de retransmission**, dont les conditions de
+  prise de vue diffèrent d'un téléphone posé au sol. Les valeurs sont des ordres
+  de grandeur mesurés, pas une norme.
+- **Deux règles dépendent du club, que l'app ne connaît pas.** L'écartement des
+  pieds va de 1,27× la largeur d'épaules au fer à 1,54× au driver ; l'inclinaison
+  du buste de 34° à 28°. Leurs bandes couvrent donc tous les clubs et ne
+  détectent que les écarts francs. Le tempo, lui, est indépendant du club.
 - **La qualité de pose sur vraies vidéos n'a pas été mesurée ici.** Le moteur
   est validé sur séquences synthétiques et la chaîne navigateur sur une vidéo
   de test, mais aucune vidéo de swing réelle n'était disponible dans

@@ -116,6 +116,20 @@ export const QUALITY = {
   minDurationSec: 1.0,
   /** Durée maximale analysée (s) — au-delà, on recadre sur la fenêtre de mouvement. */
   maxDurationSec: 20,
+  /**
+   * Déplacement des chevilles entre l'adresse et l'impact, en U, au-delà
+   * duquel on avertit.
+   *
+   * Les pieds d'un joueur ne se déplacent pas avant l'impact. Tout
+   * déplacement apparent vient donc de la CAMÉRA (téléphone tenu à la main,
+   * panoramique, zoom) — et ce déplacement contamine toutes les mesures de
+   * translation : tête, bassin, équilibre. Les chevilles sont le seul repère
+   * du corps qu'on puisse supposer fixe, donc le seul détecteur de dérive
+   * disponible sans mire ni capteur.
+   */
+  warnFootDrift: 0.1,
+  /** Dérive au-delà de laquelle les mesures de translation sont déclarées non fiables. */
+  maxFootDrift: 0.25,
 } as const
 
 export const EXTRACTION = {
@@ -147,43 +161,82 @@ export const EXTRACTION = {
  * `minor` / `major` sont des écarts au-delà de la zone saine.
  */
 export const FAULTS = {
-  /** Inclinaison du buste vers l'avant à l'adresse (degrés depuis la verticale). */
-  setupSpineTilt: { idealMin: 20, idealMax: 45, minor: 6, major: 15 },
+  // =========================================================================
+  // SEUILS CALÉS SUR DONNÉES — 409 swings de professionnels (GolfDB)
+  //
+  // Retenus après filtrage : pose détectée sur plus de 90 % des images, vue
+  // identifiée avec confiance, phases détectées avec confiance, et caméra
+  // stable (déplacement apparent des chevilles sous 10 % du torse entre
+  // l'adresse et l'impact). 1 045 clips analysés, 409 retenus : un corpus
+  // bruité fausse les centiles, donc les seuils.
+  //
+  // Règle de calage : « léger » au 90e centile du corpus, « important » au
+  // 98e. Un bon joueur traverse donc l'analyse sans être couvert d'alertes,
+  // tandis qu'un débutant sort franchement de ces bornes.
+  //
+  // Réserve honnête : ce corpus est fait d'images de retransmission, dont les
+  // conditions de prise de vue diffèrent d'un téléphone posé au sol. Les
+  // valeurs restent des ordres de grandeur mesurés, pas une norme.
+  // =========================================================================
+
+  /**
+   * Inclinaison du buste vers l'avant à l'adresse (degrés depuis la verticale).
+   * Dépend du club : médiane 28,0° au driver contre 34,2° au fer. L'app ne
+   * connaissant pas le club, la bande couvre l'ensemble — elle ne détecte donc
+   * que les écarts francs.
+   */
+  setupSpineTilt: { idealMin: 21.3, idealMax: 39.8, minor: 1.5, major: 5 },
   /** Angle des genoux à l'adresse (180° = jambe tendue). */
-  setupKneeFlex: { idealMin: 150, idealMax: 172, minor: 6, major: 15 },
-  /** Écartement des chevilles / largeur d'épaules, à l'adresse (vue de face). */
-  setupStanceWidth: { idealMin: 0.85, idealMax: 1.35, minor: 0.15, major: 0.35 },
+  setupKneeFlex: { idealMin: 147.8, idealMax: 167.4, minor: 1.7, major: 5.7 },
+  /**
+   * Écartement des chevilles / largeur d'épaules, à l'adresse (vue de face).
+   * Très dépendant du club : médiane 1,54 au driver contre 1,27 au fer, et
+   * 10e centile à 0,97 au fer contre 1,33 au driver. Sans connaître le club,
+   * seule une bande large est honnête.
+   */
+  setupStanceWidth: { idealMin: 0.97, idealMax: 2.07, minor: 0.08, major: 0.25 },
   /** Glissement latéral du bassin à l'écart de la cible, au top (en U). */
-  sway: { ideal: 0.06, minor: 0.12, major: 0.22 },
+  sway: { ideal: 0.01, minor: 0.144, major: 0.211 },
   /** Glissement du bassin vers la cible pendant la descente (en U). */
-  slide: { ideal: 0.12, minor: 0.22, major: 0.34 },
+  slide: { ideal: 0.082, minor: 0.274, major: 0.373 },
   /** Bascule du buste vers la cible au top — reverse pivot (degrés). */
-  reversePivot: { ideal: 2, minor: 8, major: 16 },
-  /** Déplacement de la tête entre l'adresse et l'impact (en U). */
-  headMovement: { ideal: 0.08, minor: 0.15, major: 0.26 },
+  reversePivot: { ideal: 4.3, minor: 12.1, major: 15.4 },
+  /**
+   * Déplacement de la tête entre l'adresse et l'impact (en U).
+   * Le seuil retenu au départ (15 % du torse) venait de l'enseignement ; il
+   * déclenchait sur 84 % des professionnels mesurés, dont 40 % en « important ».
+   * La médiane réelle est de 23 % et le 90e centile de 40 % : la tête d'un bon
+   * joueur se déplace, et nettement.
+   */
+  headMovement: { ideal: 0.233, minor: 0.395, major: 0.534 },
   /** Variation de l'inclinaison du buste entre l'adresse et le top/impact (degrés). */
-  lossOfPosture: { ideal: 4, minor: 9, major: 17 },
+  lossOfPosture: { ideal: 5.9, minor: 11.3, major: 15.6 },
   /** Avancée du bassin vers la balle entre l'adresse et l'impact (en U, vue DTL). */
-  earlyExtension: { ideal: 0.05, minor: 0.1, major: 0.18 },
-  /** Angle du coude avant juste après l'impact (180° = bras tendu). `minor`/`major` sont des écarts sous `idealMin`. */
-  chickenWing: { idealMin: 160, minor: 8, major: 26 },
+  earlyExtension: { ideal: 0.084, minor: 0.165, major: 0.214 },
+  /**
+   * Angle du coude avant juste APRÈS l'impact (180° = bras tendu).
+   * `minor`/`major` sont des écarts sous `idealMin`.
+   *
+   * La fenêtre est fixée en secondes après l'impact, et non sur la phase
+   * « mi-finish ». Mesurée au mi-finish sur des professionnels, la
+   * distribution descendait à 76° au 2e centile : à ce stade les bras se
+   * replient chez tout le monde, et la règle n'observait donc pas ce qu'elle
+   * prétend. Recentrée sur l'extension qui suit l'impact, elle retrouve une
+   * distribution saine (2e centile à 115°).
+   */
+  chickenWing: { idealMin: 134.4, minor: 0.5, major: 18.9, windowStartSec: 0.07, windowEndSec: 0.2 },
   /**
    * Ratio durée du backswing / durée de la descente.
    *
-   * SEULE ENTRÉE CALIBRÉE SUR DE VRAIES DONNÉES : mesurée sur les 1 399
-   * swings de professionnels annotés de GolfDB (médiane 3,39 ; p10 2,72 ;
-   * p90 4,71 ; p95 5,29). La zone saine reprend l'intervalle p10–p90.
+   * Mesuré par le MOTEUR sur le corpus, et non repris des annotations
+   * humaines : l'adresse n'y est pas définie de la même façon, et confronter
+   * la mesure d'un utilisateur à une référence calculée autrement produit un
+   * biais systématique. Référence et mesure doivent passer par le même code.
    *
-   * Le « 3:1 » répété en enseignement est donc une approximation basse : la
-   * bande 2,3–3,8 retenue au départ aurait classé 33 % des professionnels en
-   * « montée trop lente ». C'est exactement le genre d'erreur qu'un seuil
-   * posé a priori produit, et que la mesure corrige.
-   *
-   * Le ratio est invariant à la cadence vidéo (médiane 3,43 en temps réel
-   * contre 3,38 en ralenti sur ce corpus), ce qui le rend comparable d'une
-   * vidéo à l'autre sans correction.
+   * Seul indicateur indépendant du club : médiane 2,94 au driver, 3,00 au fer,
+   * 2,67 au bois de parcours.
    */
-  tempo: { idealMin: 2.7, idealMax: 4.7, minor: 0.5, major: 1.3 },
+  tempo: { idealMin: 1.6, idealMax: 4.5, minor: 0.48, major: 1.61 },
   /**
    * Instabilité du bassin et de la tête pendant le finish (écart-type en U).
    * La fenêtre est ancrée sur l'IMPACT, pas sur la phase « finish » détectée :
@@ -192,9 +245,9 @@ export const FAULTS = {
    * signaler.
    */
   finishBalance: {
-    ideal: 0.03,
-    minor: 0.06,
-    major: 0.11,
+    ideal: 0.05,
+    minor: 0.11,
+    major: 0.152,
     /** Début de la fenêtre, en secondes après l'impact. */
     windowStartSec: 0.45,
     /** Longueur de la fenêtre, en secondes. */

@@ -69,6 +69,70 @@ export function handsCenter(c: CleanedPose, f: number): Pt {
 }
 
 /**
+ * Trajectoire des mains sur toute la séquence, avec repli sur un seul poignet.
+ *
+ * Pourquoi : exiger les DEUX poignets perd le signal dès qu'un bras masque
+ * l'autre — ce qui est la norme en vue de derrière. Mesuré sur 1 045 swings de
+ * professionnels, les deux poignets ne sont visibles plus de 90 % du temps que
+ * dans 40 % des clips, alors qu'AU MOINS UN l'est dans 100 % d'entre eux. La
+ * conséquence était une erreur médiane de 34 images sur l'adresse en vue de
+ * derrière, contre 9 de face.
+ *
+ * Le repli n'utilise pas le poignet brut, qui introduirait un saut de position
+ * à chaque bascule et donc un faux pic de vitesse : on applique le décalage
+ * médian mesuré entre ce poignet et le milieu, sur les images où les deux sont
+ * visibles. Les mains tenant le même grip, ce décalage est petit et stable.
+ */
+export function handsSeries(c: CleanedPose): { x: Float64Array; y: Float64Array } {
+  const n = c.n
+  const x = new Float64Array(n).fill(NaN)
+  const y = new Float64Array(n).fill(NaN)
+
+  const offLx: number[] = []
+  const offLy: number[] = []
+  const offRx: number[] = []
+  const offRy: number[] = []
+
+  for (let f = 0; f < n; f++) {
+    if (!hasAll(c, f, [LM.LEFT_WRIST, LM.RIGHT_WRIST])) continue
+    const l = pt(c, LM.LEFT_WRIST, f)
+    const r = pt(c, LM.RIGHT_WRIST, f)
+    const m = mid(l, r)
+    x[f] = m.x
+    y[f] = m.y
+    offLx.push(m.x - l.x)
+    offLy.push(m.y - l.y)
+    offRx.push(m.x - r.x)
+    offRy.push(m.y - r.y)
+  }
+
+  const median = (values: number[]): number => {
+    if (values.length === 0) return 0
+    const sorted = [...values].sort((a, b) => a - b)
+    const i = sorted.length >> 1
+    return sorted.length % 2 ? sorted[i] : (sorted[i - 1] + sorted[i]) / 2
+  }
+  const dLx = median(offLx)
+  const dLy = median(offLy)
+  const dRx = median(offRx)
+  const dRy = median(offRy)
+
+  for (let f = 0; f < n; f++) {
+    if (Number.isFinite(x[f])) continue
+    if (hasAll(c, f, [LM.LEFT_WRIST])) {
+      const l = pt(c, LM.LEFT_WRIST, f)
+      x[f] = l.x + dLx
+      y[f] = l.y + dLy
+    } else if (hasAll(c, f, [LM.RIGHT_WRIST])) {
+      const r = pt(c, LM.RIGHT_WRIST, f)
+      x[f] = r.x + dRx
+      y[f] = r.y + dRy
+    }
+  }
+  return { x, y }
+}
+
+/**
  * Longueur de torse médiane sur toute la séquence.
  * Sert d'échelle provisoire avant que l'adresse ne soit connue.
  */

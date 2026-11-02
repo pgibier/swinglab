@@ -244,7 +244,10 @@ export function synthSwing(opts: SynthOptions): PoseSequence {
     // c'est ce contraste qui permet au moteur de déduire la latéralité.
     const leadElbowAngle =
       phase === 'back' ? smooth(172, 168, p)
-      : phase === 'follow' ? smooth(170, opts.leadElbowFollowDeg ?? 168, p)
+      // Le chicken wing s'installe dès l'extension qui suit l'impact, pas en
+      // fin de finish : la rampe doit atteindre sa valeur en ~0,15 s pour
+      // tomber dans la fenêtre de mesure de la règle.
+      : phase === 'follow' ? smooth(170, opts.leadElbowFollowDeg ?? 168, Math.min(1, p * 5))
       : phase === 'finish' ? (opts.leadElbowFollowDeg ?? 168)
       : 172
     const trailElbowAngle =

@@ -6,9 +6,9 @@
  */
 
 import { QUALITY, SCORE_FLOOR } from './config'
-import { CORE_LANDMARKS } from './landmarks'
-import { clamp, meanFinite } from './geometry'
-import { cleanSequence } from './smoothing'
+import { CORE_LANDMARKS, LM } from './landmarks'
+import { clamp, dist, meanFinite } from './geometry'
+import { hasAll, pt, cleanSequence, type CleanedPose } from './smoothing'
 import { buildReference } from './normalize'
 import { computeSignals, detectEvents } from './events'
 import { computeMetrics } from './metrics'
@@ -21,13 +21,20 @@ export type AnalysisOutcome =
 
 const SEVERITY_RANK = { major: 3, moderate: 2, minor: 1, none: 0 } as const
 
-function computeQuality(
-  coverage: number,
-  meanVis: number,
-  fps: number,
-  downswingFrames: number,
-): SwingQuality {
-  return { poseCoverage: coverage, meanVisibility: meanVis, fps, downswingFrames }
+/**
+ * Déplacement apparent du milieu des chevilles entre l'adresse et l'impact.
+ * Les pieds ne bougeant pas avant l'impact, ce déplacement mesure la dérive
+ * de la caméra — et donc la contamination des mesures de translation.
+ */
+function footDriftU(c: CleanedPose, addressFrame: number, impactFrame: number, scale: number): number {
+  const ankles = [LM.LEFT_ANKLE, LM.RIGHT_ANKLE]
+  if (!hasAll(c, addressFrame, ankles) || !hasAll(c, impactFrame, ankles)) return NaN
+  if (!Number.isFinite(scale) || scale < 1e-9) return NaN
+  const at = (f: number) => ({
+    x: (pt(c, LM.LEFT_ANKLE, f).x + pt(c, LM.RIGHT_ANKLE, f).x) / 2,
+    y: (pt(c, LM.LEFT_ANKLE, f).y + pt(c, LM.RIGHT_ANKLE, f).y) / 2,
+  })
+  return dist(at(addressFrame), at(impactFrame)) / scale
 }
 
 export function analyzeSequence(seq: PoseSequence): AnalysisOutcome {
@@ -67,7 +74,13 @@ export function analyzeSequence(seq: PoseSequence): AnalysisOutcome {
   const ref = buildReference(c, events.address, events.top)
   const metrics = computeMetrics(c, ref, sig)
 
-  const quality = computeQuality(coverage, Number.isFinite(meanVis) ? meanVis : 0, c.fps, events.impact - events.top)
+  const quality: SwingQuality = {
+    poseCoverage: coverage,
+    meanVisibility: Number.isFinite(meanVis) ? meanVis : 0,
+    fps: c.fps,
+    downswingFrames: events.impact - events.top,
+    footDrift: footDriftU(c, events.address, events.impact, ref.scale),
+  }
 
   const ctx: FaultContext = { c, ref, events, addressWindow, eventConfidence, metrics, quality }
 
@@ -124,6 +137,14 @@ export function analyzeSequence(seq: PoseSequence): AnalysisOutcome {
   }
   if (events.impact - events.top < QUALITY.minDownswingFrames) {
     warnings.push(`Seulement ${events.impact - events.top} image(s) entre le sommet et l’impact : la position d’impact est imprécise.`)
+  }
+  if (Number.isFinite(quality.footDrift) && quality.footDrift > QUALITY.warnFootDrift) {
+    const severe = quality.footDrift > QUALITY.maxFootDrift
+    warnings.push(
+      severe
+        ? `La caméra a bougé pendant le swing (tes pieds se déplacent de ${Math.round(quality.footDrift * 100)} % de la longueur de ton torse à l’image). Les mesures de déplacement — tête, bassin, équilibre — ne sont pas fiables : cale le téléphone et refilme.`
+        : `Léger mouvement de caméra détecté (${Math.round(quality.footDrift * 100)} % du torse). Cale le téléphone contre un sac pour des mesures plus propres.`,
+    )
   }
   if (ref.handednessConfidence < 0.6) {
     warnings.push('Latéralité (droitier / gaucher) incertaine — vérifie-la dans le rapport.')

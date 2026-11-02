@@ -79,8 +79,13 @@ if (argv[0] === '--batch') {
       }
       const r = outcome.report
       const metrics: Record<string, number> = {}
+      // La gravité est exportée avec la valeur : c'est elle qui permet de
+      // mesurer le taux de déclenchement d'une règle sur un corpus de
+      // référence — le diagnostic de calibration le plus direct qui soit.
+      const severities: Record<string, string> = {}
       for (const fault of r.faults) {
         if (Number.isFinite(fault.value)) metrics[fault.id] = fault.value
+        severities[fault.id] = fault.severity
       }
       ok++
       lines.push(
@@ -94,9 +99,12 @@ if (argv[0] === '--batch') {
           poseCoverage: r.meta.quality.poseCoverage,
           meanVisibility: r.meta.quality.meanVisibility,
           downswingFrames: r.meta.quality.downswingFrames,
+          footDrift: r.meta.quality.footDrift,
+          eventConfidence: r.eventConfidence,
           events: r.events,
           score: r.score,
           metrics,
+          severities,
         }),
       )
     } catch (err) {

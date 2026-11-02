@@ -33,7 +33,7 @@ import { EVENTS, QUALITY } from './config'
 import { argMax, argMin, clamp } from './geometry'
 import { derivative } from './smoothing'
 import type { CleanedPose } from './smoothing'
-import { handsCenter, hipCenter, medianTorso } from './normalize'
+import { handsSeries, hipCenter, medianTorso } from './normalize'
 import { SWING_EVENTS, type SwingEventConfidence, type SwingEvents } from './types'
 
 export interface EventSignals {
@@ -51,13 +51,7 @@ export interface EventSignals {
 
 export function computeSignals(c: CleanedPose): EventSignals {
   const n = c.n
-  const handsX = new Float64Array(n).fill(NaN)
-  const handsY = new Float64Array(n).fill(NaN)
-  for (let f = 0; f < n; f++) {
-    const h = handsCenter(c, f)
-    handsX[f] = h.x
-    handsY[f] = h.y
-  }
+  const { x: handsX, y: handsY } = handsSeries(c)
   let scale = medianTorso(c)
   if (!Number.isFinite(scale) || scale < 1e-6) scale = 0.25
 

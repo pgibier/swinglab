@@ -83,6 +83,12 @@ def main() -> None:
     parser.add_argument("--min-pose-coverage", type=float, default=0.9)
     parser.add_argument("--min-view-confidence", type=float, default=0.6)
     parser.add_argument("--min-downswing-frames", type=int, default=5)
+    parser.add_argument("--min-event-confidence", type=float, default=0.7,
+                        help="confiance minimale sur l'adresse et l'impact")
+    parser.add_argument("--max-foot-drift", type=float, default=0.10,
+                        help="déplacement apparent des chevilles toléré (en U) : "
+                             "au-delà, la caméra a bougé et les mesures de "
+                             "translation sont contaminées")
     parser.add_argument("--min-samples", type=int, default=20,
                         help="nombre minimal de clips par (vue, métrique) pour publier des centiles")
     args = parser.parse_args()
@@ -124,6 +130,17 @@ def main() -> None:
         if result["downswingFrames"] < args.min_downswing_frames:
             rejected["descente trop courte"] += 1
             continue
+        conf = result.get("eventConfidence") or {}
+        if min(conf.get("address", 1), conf.get("impact", 1)) < args.min_event_confidence:
+            rejected["phases peu sûres"] += 1
+            continue
+        drift = result.get("footDrift")
+        if not isinstance(drift, (int, float)):
+            rejected["chevilles non visibles"] += 1
+            continue
+        if drift > args.max_foot_drift:
+            rejected["caméra instable"] += 1
+            continue
 
         for metric, value in result["metrics"].items():
             values[result["view"]][metric].append(float(value))
@@ -144,6 +161,8 @@ def main() -> None:
             "minPoseCoverage": args.min_pose_coverage,
             "minViewConfidence": args.min_view_confidence,
             "minDownswingFrames": args.min_downswing_frames,
+            "minEventConfidence": args.min_event_confidence,
+            "maxFootDrift": args.max_foot_drift,
         },
         "views": {},
     }

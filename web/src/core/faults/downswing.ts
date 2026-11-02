@@ -1,7 +1,7 @@
 /** Règles de la descente et de l'impact. */
 
 import { FAULTS } from '../config'
-import { argMax } from '../geometry'
+import { argMax, medianOver } from '../geometry'
 import { makeFault, requireView, ruleConfidence, severityFrom, type Rule } from './common'
 
 /**
@@ -127,21 +127,25 @@ export const chickenWing: Rule = (ctx) => {
   const skip = requireView(ctx, id, label, ['face_on'])
   if (skip) return skip
 
-  const { impact, midFollowThrough } = ctx.events
-  const value = ctx.metrics.leadElbow[midFollowThrough]
+  const { impact } = ctx.events
+  const { idealMin, minor, major, windowStartSec, windowEndSec } = FAULTS.chickenWing
+  // Fenêtre fixée en secondes après l'impact : c'est là que le bras avant doit
+  // s'étendre. Au mi-finish, les bras se replient chez tout le monde.
+  const from = Math.min(ctx.c.n - 1, impact + Math.round(windowStartSec * ctx.c.fps))
+  const to = Math.min(ctx.c.n - 1, impact + Math.round(windowEndSec * ctx.c.fps))
+  if (to <= from) return null
+  const value = medianOver(ctx.metrics.leadElbow, from, to)
   if (!Number.isFinite(value)) return null
-
-  const { idealMin, minor, major } = FAULTS.chickenWing
   const deviation = Math.max(0, idealMin - value)
   const severity = severityFrom(deviation, minor, major)
 
   return makeFault({
     id, label, category: 'impact', severity,
-    confidence: ruleConfidence(ctx, [impact, midFollowThrough], ['impact', 'midFollowThrough']),
+    confidence: ruleConfidence(ctx, [impact, from, to], ['impact']),
     value: Math.round(value * 10) / 10,
     unit: '° (180° = bras tendu)',
     threshold: idealMin - minor,
-    evidenceFrame: midFollowThrough,
+    evidenceFrame: Math.round((from + to) / 2),
     referenceFrame: impact,
     explanation: severity === 'none'
       ? `Ton bras avant s’étend bien après l’impact (${Math.round(value)}°).`

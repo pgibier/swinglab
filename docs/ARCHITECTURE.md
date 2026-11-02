@@ -90,6 +90,15 @@ naïf `response.ok` conclut donc que le modèle est présent, et MediaPipe reço
 du HTML — avec pour seul symptôme un « Unable to open zip archive » illisible.
 Le chargeur vérifie le `content-type` et la taille.
 
+**La dérive de caméra.** Les pieds d'un joueur ne bougent pas avant l'impact.
+Tout déplacement apparent des chevilles vient donc de la caméra — téléphone
+tenu à la main, panoramique, zoom — et contamine toutes les mesures de
+translation : tête, bassin, équilibre. Les chevilles sont le seul repère du
+corps qu'on puisse supposer fixe, donc le seul détecteur de dérive disponible
+sans mire ni capteur. Sur le corpus de professionnels, la dérive médiane est
+de 8 % du torse et 32 % des clips dépassent 10 % : ignorer ce phénomène
+faussait les seuils. L'app avertit désormais l'utilisateur.
+
 **Le gating par vue.** Une règle qui mesure un défaut invisible sous l'angle
 filmé produit un chiffre, et ce chiffre est du bruit. Chaque règle déclare ses
 vues valides ; hors de celles-ci, elle renvoie un « non évaluable » avec la
@@ -102,21 +111,45 @@ annotations différentes selon le défaut sélectionné — sans retraitement.
 ## Calibration
 
 Tous les seuils sont dans `web/src/core/config.ts`, en unités de torse (U) ou
-en degrés. Un seul est calé sur des données : le **tempo**, mesuré sur les
-1 399 swings de professionnels annotés de GolfDB. Les onze autres viennent de
-la littérature biomécanique et de l'enseignement du golf, faute de jeu public
-étiquetant les défauts de swing. Ils sont volontairement conservateurs — taire
-un défaut coûte moins cher que d'affirmer un faux positif à un débutant.
+en degrés, et **tous sont calés sur 409 swings de professionnels** — filtrés
+sur la qualité de pose, la fiabilité des phases détectées et la stabilité de
+la caméra. Règle de calage : « léger » au 90ᵉ centile du corpus, « important »
+au 98ᵉ. Un bon joueur traverse donc l'analyse sans être couvert d'alertes.
 
-Ce que le calage du tempo a montré, et pourquoi il faut étendre la démarche :
-la bande 2,3–3,8 issue du « 3:1 » enseigné classait **33 % des professionnels
-du corpus en montée trop lente**. Mesure faite, la distribution réelle est
-centrée sur 3,39, avec p10 à 2,72 et p90 à 4,71. Un seuil plausible n'est pas
-un seuil juste, et seul un corpus le dit.
+Ce que la mesure a corrigé, et qui justifie toute la démarche : avec les
+seuils issus de la littérature et de l'enseignement, **six règles sur douze se
+déclenchaient sur plus d'un quart des professionnels**.
 
-Détail qui rend ce calage possible sans aucune vidéo : le tempo est un ratio
-de durées, donc invariant à la cadence d'enregistrement. Le corpus le confirme
-— médiane 3,43 sur les clips en temps réel, 3,38 sur les clips en ralenti.
+| règle | avant | après |
+|---|---|---|
+| stabilité de la tête | 84 % | 12 % |
+| chicken wing | 63 % | 13 % |
+| écartement des pieds | 50 % | 2 % |
+| tempo | 45 % | 22 % |
+| early extension | 40 % | 12 % |
+| équilibre au finish | 35 % | 10 % |
+
+La stabilité de la tête est le cas le plus net : le seuil enseigné de 15 % du
+torse déclenchait sur 84 % des professionnels, dont 40 % en « important ».
+La médiane réelle est de 23 % et le 90ᵉ centile de 40 % — la tête d'un bon
+joueur se déplace, et nettement. Un seuil plausible n'est pas un seuil juste.
+
+**Le profil de référence est construit par le moteur lui-même.** Une première
+version dérivait le tempo des annotations humaines de GolfDB ; confrontée à la
+mesure du moteur sur les mêmes clips, elle donnait 3,39 contre 2,5, parce que
+l'adresse n'y est pas définie de la même façon. Référence et mesure doivent
+passer par le même code, sans quoi on compare l'utilisateur à autre chose que
+ce qu'on lui mesure.
+
+**Deux règles dépendent du club** — écartement des pieds (1,27× la largeur
+d'épaules au fer contre 1,54× au driver) et inclinaison du buste (34° contre
+28°). L'app ne connaissant pas le club, leurs bandes couvrent tous les clubs et
+ne détectent que les écarts francs. Demander le club à l'utilisateur les
+rendrait nettement plus fines.
+
+**Réserve** : ce corpus est fait d'images de retransmission. Les conditions de
+prise de vue diffèrent d'un téléphone posé au sol, et les valeurs restent des
+ordres de grandeur mesurés, pas une norme.
 
 Chaque diagnostic sort avec une confiance = adéquation de la vue × fiabilité
 des phases utilisées × visibilité des points clés, plafonnée à 0,95 : aucune

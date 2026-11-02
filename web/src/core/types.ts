@@ -131,6 +131,12 @@ export interface SwingQuality {
   fps: number
   /** Nombre de frames entre le top et l'impact (sous 5, l'impact est imprécis). */
   downswingFrames: number
+  /**
+   * Déplacement apparent des chevilles entre l'adresse et l'impact, en U.
+   * Les pieds ne bougeant pas avant l'impact, c'est une mesure de la dérive
+   * de la caméra. NaN si les chevilles ne sont pas visibles.
+   */
+  footDrift: number
 }
 
 export interface SwingReport {
