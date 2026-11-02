@@ -9,6 +9,33 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Sous Linux, MediaPipe charge une bibliothèque native qui réclame les
+bibliothèques graphiques du système, même pour un traitement purement CPU.
+Sans elles, l'erreur est `libEGL.so.1: cannot open shared object file` :
+
+```bash
+sudo apt-get install -y libegl1 libgl1 libglib2.0-0 libgles2
+```
+
+## Extraire un corpus entier
+
+```bash
+python extract_corpus.py --labels data/labels.json \
+    --clips-dir data/videos_160 --model pose_landmarker_full.task \
+    -o data/points --views face-on down-the-line --workers 4
+```
+
+Parallélisé et reprenable : un clip déjà extrait est ignoré, donc une
+interruption ne coûte que le clip en cours. Compter environ 0,025 s par image
+et par cœur — à peu près 25 minutes pour 1 000 clips sur 4 cœurs.
+
+Le détecteur est recréé pour CHAQUE clip, et ce n'est pas un oubli
+d'optimisation : en mode VIDEO, MediaPipe exige des horodatages strictement
+croissants sur toute sa durée de vie, et surtout il entretient un suivi
+temporel qui, réutilisé, ferait fuiter la pose du joueur précédent dans les
+premières images du clip suivant. Le coût mesuré de la création est inférieur
+à 0,1 s.
+
 ## Principe : une seule implémentation du moteur
 
 `validate_events.py` n'évalue pas une copie Python des règles : il appelle

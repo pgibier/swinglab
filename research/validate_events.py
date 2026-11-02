@@ -5,8 +5,12 @@ Le moteur évalué est celui qui est LIVRÉ : ce script appelle
 `web/scripts/analyze.ts`. Il n'existe donc aucun risque de valider une
 implémentation et d'en expédier une autre.
 
-Deux modes :
-  --landmarks-dir  points clés déjà extraits (JSON) — rapide, reproductible
+Trois modes :
+  --batch-results  sortie .jsonl de « analyze.ts --batch » — de loin le plus
+                   rapide, et le seul tenable au-delà de quelques dizaines de
+                   clips (un démarrage de processus par clip coûte plus cher
+                   que l'analyse)
+  --landmarks-dir  points clés déjà extraits (JSON), un processus par clip
   --videos-dir     vidéos brutes, extraction MediaPipe à la volée
 
 Le fichier de labels suit le format produit par golfdb_labels.py :
@@ -71,6 +75,8 @@ def run_engine(points_path: Path) -> dict | None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--labels", type=Path, required=True)
+    parser.add_argument("--batch-results", type=Path,
+                        help="sortie .jsonl de « analyze.ts --batch »")
     parser.add_argument("--landmarks-dir", type=Path)
     parser.add_argument("--videos-dir", type=Path)
     parser.add_argument("--model", type=Path, help="fichier .task, requis avec --videos-dir")
@@ -85,14 +91,70 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args()
 
-    if not args.landmarks_dir and not args.videos_dir:
-        raise SystemExit("Fournis --landmarks-dir ou --videos-dir.")
+    if not args.batch_results and not args.landmarks_dir and not args.videos_dir:
+        raise SystemExit("Fournis --batch-results, --landmarks-dir ou --videos-dir.")
     if args.videos_dir and not args.model:
         raise SystemExit("--videos-dir requiert --model.")
 
     clips = json.loads(args.labels.read_text())["clips"]
     if args.limit:
         clips = clips[: args.limit]
+
+    # Mode corpus : tout est déjà analysé, il ne reste qu'à comparer.
+    if args.batch_results:
+        detected_by_id: dict[str, dict] = {}
+        for line in args.batch_results.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            if row.get("ok") and "events" in row:
+                detected_by_id[str(row["id"])] = row
+
+        errors: dict[str, list[int]] = {name: [] for name in EVENT_NAMES}
+        signed: dict[str, list[int]] = {name: [] for name in EVENT_NAMES}
+        evaluated = 0
+        missing = 0
+        for clip in clips:
+            row = detected_by_id.get(str(clip["id"]))
+            if row is None:
+                missing += 1
+                continue
+            for name, truth in clip["events"].items():
+                if name not in row["events"]:
+                    continue
+                delta = int(row["events"][name]) - int(truth)
+                errors[name].append(abs(delta))
+                signed[name].append(delta)
+            evaluated += 1
+
+        if evaluated == 0:
+            raise SystemExit(f"Aucun clip évalué ({missing} absent(s)).")
+
+        print(f"\nClips évalués : {evaluated}  (absents : {missing})")
+        print(f"Tolérance     : ±{args.tolerance} image(s)\n")
+        print(f"{'phase':<20}{'n':>6}{'correct':>10}{'err. moy.':>12}{'médiane':>10}{'biais':>9}")
+        print("-" * 67)
+        all_errors: list[int] = []
+        for name in EVENT_NAMES:
+            values = errors[name]
+            if not values:
+                print(f"{name:<20}{0:>6}{'—':>10}{'—':>12}{'—':>10}{'—':>9}")
+                continue
+            arr = np.asarray(values)
+            bias = float(np.median(signed[name]))
+            within = float((arr <= args.tolerance).mean())
+            print(f"{name:<20}{len(arr):>6}{within:>9.1%}{arr.mean():>11.2f}f"
+                  f"{np.median(arr):>9.1f}f{bias:>+8.1f}f")
+            all_errors.extend(values)
+        overall = np.asarray(all_errors)
+        print("-" * 67)
+        print(f"{'TOUTES PHASES':<20}{len(overall):>6}"
+              f"{float((overall <= args.tolerance).mean()):>9.1%}"
+              f"{overall.mean():>11.2f}f{np.median(overall):>9.1f}f")
+        print("\nLa colonne « biais » est l'écart médian SIGNÉ (détecté − annoté) :")
+        print("un biais systématique se corrige, du bruit non.")
+        return
 
     work_dir = args.landmarks_dir or (args.videos_dir.parent / "_points")
     if args.videos_dir:
