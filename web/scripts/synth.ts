@@ -45,6 +45,13 @@ export interface SynthOptions {
 }
 
 const U = 0.17 // longueur de torse, en unités de hauteur d'image
+/**
+ * Abscisse du joueur, en fraction de la LARGEUR d'image.
+ * Le joueur est centré : une figure collée au bord gauche (x ≈ 0) masquerait
+ * un éventuel bug de conversion de coordonnées, puisque tout y est proche de
+ * zéro.
+ */
+const CENTER_X_FRACTION = 0.5
 const SHOULDER_W = 0.9 * U
 const HIP_W = 0.62 * U
 const HIP_Y = 0.6
@@ -245,7 +252,7 @@ export function synthSwing(opts: SynthOptions): PoseSequence {
     // --- assemblage ---
     const out: Landmark[] = new Array(LANDMARK_COUNT)
     const put = (idx: number, p2: Hu, visibility = 0.95) => {
-      out[idx] = { x: p2.x / aspect, y: p2.y, z: 0, visibility }
+      out[idx] = { x: p2.x / aspect + CENTER_X_FRACTION, y: p2.y, z: 0, visibility }
     }
 
     // Droitier : le côté avant est le côté GAUCHE.
