@@ -140,16 +140,71 @@ export function detectEvents(
       : NaN
   }
 
-  // ---- 4. Impact : pic global de vitesse des mains, affiné sur la hauteur ----
+  // ---- 4. Sommet et impact : structure du mouvement vertical des mains ----
+  //
+  // Un swing a une signature verticale invariante : les mains montent
+  // (backswing), redescendent (downswing), puis remontent (finish). Le sommet
+  // est le changement de sens montée→descente, l'impact le point le plus bas
+  // entre ce sommet et la remontée du finish.
+  //
+  // On n'utilise PAS le pic global de vitesse comme ancre : il échoue dès que
+  // la montée est aussi rapide que la descente (swing précipité de débutant),
+  // ce qui place l'« impact » en pleine montée. Le critère géométrique, lui,
+  // ne dépend pas du rapport des vitesses.
+  const dh = derivative(sig.handHeight, c.fps)
+  const dead = EVENTS.heightVelocityDeadband
+
+  /** Première frame de [lo, hi] où la vitesse verticale dépasse `sign * dead`. */
+  const firstCrossing = (lo: number, hi: number, sign: 1 | -1): number => {
+    for (let f = Math.max(0, lo); f <= Math.min(n - 1, hi); f++) {
+      const v = dh[f]
+      if (Number.isFinite(v) && sign * v > dead) return f
+    }
+    return -1
+  }
+
+  const takeaway = firstCrossing(address + 1, finish, 1)
+  const descentStart = takeaway >= 0 ? firstCrossing(takeaway + 1, finish, -1) : -1
+
+  let top = -1
+  if (takeaway >= 0 && descentStart > takeaway) {
+    top = argMax(sig.handHeight, takeaway, descentStart)
+    // Un simple tressautement ne doit pas passer pour un sommet de backswing.
+    const base = sig.handHeight[address]
+    const prominence = Number.isFinite(base) ? sig.handHeight[top] - base : NaN
+    if (Number.isFinite(prominence) && prominence < EVENTS.minTopProminence) top = -1
+  }
+
   const speedPeak = argMax(sig.handSpeed, address + 1, finish)
-  let impact = speedPeak >= 0 ? speedPeak : Math.round((address + finish) / 2)
+  let geometricTop = true
+  if (top < 0) {
+    // Repli : point le plus haut avant le pic de vitesse.
+    geometricTop = false
+    const hi = speedPeak > address + 1 ? speedPeak - 1 : finish
+    const fallback = argMax(sig.handHeight, address + 1, hi)
+    top = fallback >= 0 ? fallback : Math.round((address + finish) / 2)
+  }
+
+  const finishRise = firstCrossing(top + 1, finish, 1)
+  let impact = -1
+  let geometricImpact = true
+  if (finishRise > top) {
+    impact = argMin(sig.handHeight, top + 1, finishRise)
+  }
+  if (impact < 0) {
+    // Repli : pic de vitesse des mains après le sommet.
+    geometricImpact = false
+    const peakAfterTop = argMax(sig.handSpeed, top + 1, finish)
+    impact = peakAfterTop >= 0 ? peakAfterTop : Math.min(finish - 1, top + 1)
+  }
+
+  // Affinage : à l'impact, les mains repassent à la hauteur d'adresse.
   const addressHandsY = sig.handsY[address]
   if (Number.isFinite(addressHandsY)) {
-    // À l'impact, les mains repassent à peu près à la hauteur d'adresse.
     let best = impact
     let bestDelta = Infinity
     for (let f = impact - EVENTS.impactRefineWindow; f <= impact + EVENTS.impactRefineWindow; f++) {
-      if (f <= address || f >= finish || !Number.isFinite(sig.handsY[f])) continue
+      if (f <= top || f >= finish || !Number.isFinite(sig.handsY[f])) continue
       const d = Math.abs(sig.handsY[f] - addressHandsY)
       if (d < bestDelta) {
         bestDelta = d
@@ -159,19 +214,14 @@ export function detectEvents(
     impact = best
   }
 
-  // ---- 5. Top : mains les plus hautes entre l'adresse et l'impact ----
-  const topCandidate = argMax(sig.handHeight, address + 1, Math.max(address + 1, impact - 1))
-  const top = topCandidate >= 0 ? topCandidate : Math.round((address + impact) / 2)
-
   const downswingFrames = impact - top
   const impactConf = clamp(
-    0.95 * clamp(downswingFrames / QUALITY.minDownswingFrames, 0, 1) *
-      (speedPeak >= 0 ? 1 : 0.5),
+    0.95 * clamp(downswingFrames / QUALITY.minDownswingFrames, 0, 1) * (geometricImpact ? 1 : 0.6),
     0.2,
     0.95,
   )
   const topConf = clamp(
-    0.9 * (topCandidate >= 0 ? 1 : 0.5) * clamp((top - address) / 3, 0, 1),
+    0.9 * (geometricTop ? 1 : 0.6) * clamp((top - address) / 3, 0, 1),
     0.2,
     0.9,
   )

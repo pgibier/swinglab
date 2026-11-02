@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "setup:assets": "node scripts/setup-assets.mjs",
+    "test": "tsx scripts/selftest.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.2.0",

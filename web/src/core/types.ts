@@ -22,8 +22,17 @@ export type PoseFrame = Landmark[] | null
 /** Séquence de pose brute extraite d'une vidéo. */
 export interface PoseSequence {
   frames: PoseFrame[]
-  /** Images par seconde réelles de la vidéo source. */
+  /**
+   * Images par seconde EFFECTIVES de l'analyse (après sous-échantillonnage
+   * éventuel d'une vidéo en ralenti).
+   */
   fps: number
+  /**
+   * Instant (en secondes dans la vidéo source) de chaque frame analysée.
+   * Permet au lecteur de retrouver la frame exacte sans refaire le calcul
+   * de pas de temps.
+   */
+  timestamps: number[]
   videoWidth: number
   videoHeight: number
 }

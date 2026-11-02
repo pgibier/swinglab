@@ -1,122 +1,202 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import { useCallback, useRef, useState } from 'react'
+import { UploadScreen } from './components/UploadScreen'
+import { Processing } from './components/Processing'
+import { ScoreHeader } from './components/ScoreHeader'
+import { PhaseStrip } from './components/PhaseStrip'
+import { SwingPlayer, type SeekRequest } from './components/SwingPlayer'
+import { ReportView } from './components/ReportView'
+import { loadLandmarker, type LoadedLandmarker } from './pose/mediapipe'
+import { extractPoseSequence, loadVideo } from './pose/extract'
+import { analyzeSequence } from './core'
+import type { FaultResult, PoseSequence, SwingReport } from './core/types'
 
-function App() {
-  const [count, setCount] = useState(0)
-
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+interface Analysis {
+  url: string
+  sequence: PoseSequence
+  report: SwingReport
+  modelInfo: string
 }
 
-export default App
+type Stage =
+  | { k: 'idle' }
+  | { k: 'working'; label: string; detail?: string; ratio: number }
+  | { k: 'error'; message: string; hint?: string }
+  | { k: 'done'; data: Analysis }
+
+export default function App() {
+  const [stage, setStage] = useState<Stage>({ k: 'idle' })
+  const [selectedFault, setSelectedFault] = useState<FaultResult | null>(null)
+  const [seekRequest, setSeekRequest] = useState<SeekRequest | null>(null)
+  const [currentFrame, setCurrentFrame] = useState(0)
+
+  // Le détecteur est coûteux à créer : on le garde pour les analyses suivantes.
+  const landmarkerRef = useRef<LoadedLandmarker | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const urlRef = useRef<string | null>(null)
+
+  const seekTo = useCallback((frame: number) => {
+    setSeekRequest((prev) => ({ frame, nonce: (prev?.nonce ?? 0) + 1 }))
+  }, [])
+
+  const reset = useCallback(() => {
+    abortRef.current?.abort()
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current)
+      urlRef.current = null
+    }
+    setSelectedFault(null)
+    setSeekRequest(null)
+    setCurrentFrame(0)
+    setStage({ k: 'idle' })
+  }, [])
+
+  const handleFile = useCallback(async (file: File) => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current)
+      urlRef.current = null
+    }
+    setSelectedFault(null)
+    setSeekRequest(null)
+
+    try {
+      setStage({ k: 'working', label: 'Chargement de la vidéo…', ratio: 0.02 })
+      const { video, url } = await loadVideo(file)
+      urlRef.current = url
+
+      if (!landmarkerRef.current) {
+        setStage({
+          k: 'working',
+          label: 'Téléchargement du modèle de pose…',
+          detail: 'Une seule fois, puis il reste en cache.',
+          ratio: 0.08,
+        })
+        landmarkerRef.current = await loadLandmarker('full')
+      }
+      const loaded = landmarkerRef.current
+
+      setStage({
+        k: 'working',
+        label: 'Détection des points du corps…',
+        detail: 'Calcul effectué dans ton navigateur, rien n’est envoyé.',
+        ratio: 0.12,
+      })
+
+      const sequence = await extractPoseSequence(video, loaded.landmarker, {
+        signal: controller.signal,
+        onProgress: (p) => {
+          setStage({
+            k: 'working',
+            label: 'Détection des points du corps…',
+            detail:
+              p.stage === 'probing'
+                ? 'Mesure de la cadence vidéo…'
+                : `Image ${p.frame} / ${p.totalFrames}`,
+            // 12 % de budget pour le chargement, 85 % pour l'extraction.
+            ratio: 0.12 + p.ratio * 0.85,
+          })
+        },
+      })
+
+      setStage({ k: 'working', label: 'Analyse du swing…', ratio: 0.98 })
+      const outcome = analyzeSequence(sequence)
+      if (!outcome.ok) {
+        setStage({ k: 'error', message: outcome.error, hint: outcome.hint })
+        return
+      }
+
+      setCurrentFrame(outcome.report.events.address)
+      setStage({
+        k: 'done',
+        data: {
+          url,
+          sequence,
+          report: outcome.report,
+          modelInfo: `MediaPipe ${loaded.variant} · ${loaded.delegate}`,
+        },
+      })
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      setStage({
+        k: 'error',
+        message: err instanceof Error ? err.message : 'Analyse impossible.',
+        hint: 'Essaie une autre vidéo, ou un enregistrement plus court et mieux cadré.',
+      })
+    }
+  }, [])
+
+  if (stage.k === 'working') {
+    return (
+      <Processing
+        label={stage.label}
+        detail={stage.detail}
+        ratio={stage.ratio}
+        onCancel={() => {
+          abortRef.current?.abort()
+          reset()
+        }}
+      />
+    )
+  }
+
+  if (stage.k === 'error') {
+    return (
+      <div className="mx-auto flex min-h-[70vh] w-full max-w-lg flex-col justify-center gap-4 px-6 text-center">
+        <p className="text-base font-semibold text-[color:var(--color-sev-major)]">{stage.message}</p>
+        {stage.hint && <p className="text-sm leading-relaxed text-muted">{stage.hint}</p>}
+        <button
+          type="button"
+          onClick={reset}
+          className="mx-auto rounded-xl bg-accent px-5 py-3 text-sm font-semibold text-ink"
+        >
+          Réessayer
+        </button>
+      </div>
+    )
+  }
+
+  if (stage.k === 'done') {
+    const { data } = stage
+    return (
+      <div className="mx-auto flex w-full max-w-lg flex-col gap-5 px-4 pb-16 pt-5">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold tracking-[0.18em] text-muted uppercase">SwingLab</span>
+          <button
+            type="button"
+            onClick={reset}
+            className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-muted"
+          >
+            Nouvelle vidéo
+          </button>
+        </div>
+
+        <ScoreHeader report={data.report} modelInfo={data.modelInfo} />
+
+        <SwingPlayer
+          url={data.url}
+          sequence={data.sequence}
+          report={data.report}
+          selectedFault={selectedFault}
+          seekRequest={seekRequest}
+          onFrameChange={setCurrentFrame}
+        />
+
+        <PhaseStrip report={data.report} currentFrame={currentFrame} onSeek={seekTo} />
+
+        <ReportView
+          report={data.report}
+          selectedFaultId={selectedFault?.id ?? null}
+          onSelectFault={(fault) => {
+            setSelectedFault(fault)
+            seekTo(fault.evidenceFrame)
+          }}
+        />
+      </div>
+    )
+  }
+
+  return <UploadScreen onFile={handleFile} busy={false} />
+}

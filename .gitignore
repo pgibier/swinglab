@@ -24,3 +24,7 @@ samples/
 *.mov
 # os
 .DS_Store
+
+# assets générés par web/scripts/setup-assets.mjs
+web/public/wasm/
+web/public/models/

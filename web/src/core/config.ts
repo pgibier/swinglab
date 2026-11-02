@@ -56,8 +56,18 @@ export const EVENTS = {
   hipLevelHeight: 0.15,
   /** Hauteur de main servant de repère « épaules ». */
   shoulderLevelHeight: 0.75,
-  /** Fenêtre (frames) de raffinement de l'impact autour du pic de vitesse. */
+  /** Fenêtre (frames) de raffinement de l'impact autour du candidat géométrique. */
   impactRefineWindow: 3,
+  /**
+   * Zone morte sur la vitesse verticale des mains (U/s) pour détecter les
+   * changements de sens (montée → descente → finish) sans réagir au bruit.
+   */
+  heightVelocityDeadband: 0.3,
+  /**
+   * Amplitude minimale (en U) du mouvement vertical des mains pour qu'un
+   * changement de sens compte comme un vrai sommet de backswing.
+   */
+  minTopProminence: 0.35,
 } as const
 
 export const QUALITY = {
@@ -75,6 +85,30 @@ export const QUALITY = {
   minDurationSec: 1.0,
   /** Durée maximale analysée (s) — au-delà, on recadre sur la fenêtre de mouvement. */
   maxDurationSec: 20,
+} as const
+
+export const EXTRACTION = {
+  /**
+   * Nombre maximum de frames analysées. Au-delà, on sous-échantillonne :
+   * une vidéo iPhone en ralenti à 240 i/s produirait sinon des milliers de
+   * seeks pour une précision temporelle dont on n'a pas besoin.
+   */
+  maxAnalysisFrames: 600,
+  /** FPS supposés quand la mesure échoue. */
+  fallbackFps: 30,
+  /** Bornes de plausibilité de la mesure de FPS. */
+  minFps: 10,
+  maxFps: 300,
+  /** Valeurs usuelles sur lesquelles la mesure est recalée si elle en est proche (±4 %). */
+  commonFps: [24, 25, 29.97, 30, 48, 50, 59.94, 60, 100, 120, 240],
+  /** Nombre de frames observées pour mesurer les FPS. */
+  fpsProbeFrames: 14,
+  /** Délai max (ms) d'attente d'un seek avant abandon de la frame. */
+  seekTimeoutMs: 2500,
+  /** Seuils de confiance passés à MediaPipe. */
+  minPoseDetectionConfidence: 0.5,
+  minPosePresenceConfidence: 0.5,
+  minTrackingConfidence: 0.5,
 } as const
 
 /**
