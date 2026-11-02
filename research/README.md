@@ -94,6 +94,43 @@ suite de tests (`npm test`, cas 14) vérifie qu'aucun défaut « important » ne
 déclenche sur 24 swings de bon niveau. C'est ce contrôle qui a révélé que la
 règle de stabilité de tête produisait un faux positif systématique.
 
+## Calibrer sans vidéo : le tempo des professionnels
+
+Les annotations de GolfDB sont **committées dans le dépôt** : un `git clone`
+donne 1 400 swings de professionnels découpés en 8 phases, sans toucher à une
+seule image.
+
+Or le tempo est un **ratio de durées**. Il se calcule donc à partir des seuls
+numéros d'images, et il est invariant à la cadence d'enregistrement — ce que le
+corpus confirme de lui-même : médiane 3,43 sur les clips en temps réel contre
+3,38 sur les clips en ralenti.
+
+```bash
+git clone https://github.com/wmcnally/golfdb /tmp/golfdb
+python golfdb_labels.py /tmp/golfdb/data/golfDB.mat -o data/labels.json
+python golfdb_tempo_reference.py data/labels.json -o ../web/public/reference/profile.json
+```
+
+Distribution mesurée sur 1 399 swings :
+
+| centile | p5 | p10 | p25 | p50 | p75 | p90 | p95 |
+|---|---|---|---|---|---|---|---|
+| tempo | 2,56 | 2,72 | 3,00 | **3,39** | 4,08 | 4,71 | 5,29 |
+
+**Ce que ça a corrigé.** La zone saine initiale (2,3–3,8), tirée du « 3:1 »
+répété en enseignement, classait **33 % des professionnels en « montée trop
+lente »**. La zone est désormais l'intervalle p10–p90 réel, soit 2,7–4,7, et un
+test de non-régression verrouille ce calage.
+
+**Limite assumée** : les phases viennent de l'annotation humaine de GolfDB, pas
+du détecteur de l'application. Un écart systématique entre les deux reste
+possible, et n'est mesurable qu'en faisant tourner le moteur sur les mêmes
+clips — donc avec les vidéos.
+
+**Portée juridique** : aucune image n'est extraite, seulement des statistiques
+agrégées calculées sur des numéros d'images. Le dépôt n'énonce pas de licence
+pour ses annotations ; avant un usage commercial, faire valider ce point.
+
 ## Valider sur GolfDB
 
 GolfDB (McNally et al., CVPRW 2019) reste le corpus de swings de

@@ -136,8 +136,23 @@ export const FAULTS = {
   earlyExtension: { ideal: 0.05, minor: 0.1, major: 0.18 },
   /** Angle du coude avant juste après l'impact (180° = bras tendu). `minor`/`major` sont des écarts sous `idealMin`. */
   chickenWing: { idealMin: 160, minor: 8, major: 26 },
-  /** Ratio durée du backswing / durée de la descente. */
-  tempo: { idealMin: 2.3, idealMax: 3.8, minor: 0.5, major: 1.2 },
+  /**
+   * Ratio durée du backswing / durée de la descente.
+   *
+   * SEULE ENTRÉE CALIBRÉE SUR DE VRAIES DONNÉES : mesurée sur les 1 399
+   * swings de professionnels annotés de GolfDB (médiane 3,39 ; p10 2,72 ;
+   * p90 4,71 ; p95 5,29). La zone saine reprend l'intervalle p10–p90.
+   *
+   * Le « 3:1 » répété en enseignement est donc une approximation basse : la
+   * bande 2,3–3,8 retenue au départ aurait classé 33 % des professionnels en
+   * « montée trop lente ». C'est exactement le genre d'erreur qu'un seuil
+   * posé a priori produit, et que la mesure corrige.
+   *
+   * Le ratio est invariant à la cadence vidéo (médiane 3,43 en temps réel
+   * contre 3,38 en ralenti sur ce corpus), ce qui le rend comparable d'une
+   * vidéo à l'autre sans correction.
+   */
+  tempo: { idealMin: 2.7, idealMax: 4.7, minor: 0.5, major: 1.3 },
   /**
    * Instabilité du bassin et de la tête pendant le finish (écart-type en U).
    * La fenêtre est ancrée sur l'IMPACT, pas sur la phase « finish » détectée :

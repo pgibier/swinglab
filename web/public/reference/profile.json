@@ -1,0 +1,40 @@
+{
+ "label": "1045 swings de pros (GolfDB)",
+ "note": "Tempo uniquement. Mesuré sur les phases annotées à la main de GolfDB, pas sur le détecteur de l'application : un léger écart systématique reste possible. Les autres indicateurs n'ont pas encore de référence.",
+ "clipsAnalysed": 1399,
+ "clipsKept": 1045,
+ "views": {
+  "down_the_line": {
+   "tempo": {
+    "n": 584,
+    "mean": 3.574,
+    "sd": 0.795,
+    "percentiles": {
+     "5": 2.587,
+     "10": 2.75,
+     "25": 3.0,
+     "50": 3.375,
+     "75": 4.0,
+     "90": 4.58,
+     "95": 5.125
+    }
+   }
+  },
+  "face_on": {
+   "tempo": {
+    "n": 461,
+    "mean": 3.839,
+    "sd": 1.031,
+    "percentiles": {
+     "5": 2.545,
+     "10": 2.778,
+     "25": 3.143,
+     "50": 3.625,
+     "75": 4.286,
+     "90": 5.0,
+     "95": 5.714
+    }
+   }
+  }
+ }
+}

@@ -19,6 +19,17 @@ export function ReportView({ report, selectedFaultId, onSelectFault, reference }
 
   return (
     <div className="flex flex-col gap-6">
+      {reference && (
+        <section className="rounded-xl border border-accent/25 bg-accent/8 p-3.5">
+          <p className="text-[0.62rem] font-semibold tracking-[0.12em] text-accent uppercase">
+            Comparé à&nbsp;: {reference.label}
+          </p>
+          {reference.note && (
+            <p className="mt-1.5 text-[0.76rem] leading-relaxed text-muted">{reference.note}</p>
+          )}
+        </section>
+      )}
+
       <section className="flex flex-col gap-3">
         <h2 className="text-xs font-semibold tracking-[0.14em] text-muted uppercase">
           {detected.length > 0 ? 'À travailler en priorité' : 'Diagnostic'}

@@ -249,5 +249,33 @@ console.log('\n[14] Corpus de référence : un bon swing ne doit pas déclencher
 }
 
 // ---------------------------------------------------------------------------
+console.log('\n[15] Tempo : la zone saine doit accepter les tempos de pros')
+// ---------------------------------------------------------------------------
+{
+  // Verrouille la calibration mesurée sur les 1 399 swings annotés de GolfDB
+  // (médiane 3,39 ; p10 2,72 ; p90 4,71). La bande 2,3–3,8 utilisée au départ
+  // classait 33 % des professionnels en « montée trop lente ».
+  for (const [label, back, down] of [
+    ['p10 des pros (2,7:1)', 0.81, 0.3],
+    ['médiane des pros (3,4:1)', 0.85, 0.25],
+    ['p90 des pros (4,7:1)', 0.94, 0.2],
+  ] as const) {
+    const r = analyze(`tempo ${label}`, {
+      view: 'face_on',
+      fps: 120,
+      backswingSec: back,
+      downswingSec: down,
+    })
+    check(`tempo ${label} jugé correct`, sev(r, 'tempo') === 'none',
+      `${sev(r, 'tempo')} (${val(r, 'tempo')}:1)`)
+  }
+  const slow = analyze('tempo très lent', {
+    view: 'face_on', fps: 120, backswingSec: 1.2, downswingSec: 0.17,
+  })
+  check('montée franchement trop lente détectée', sev(slow, 'tempo') !== 'none',
+    `${sev(slow, 'tempo')} (${val(slow, 'tempo')}:1)`)
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${failures === 0 ? '✓ TOUS LES TESTS PASSENT' : '✗ ÉCHECS'} — ${checks - failures}/${checks} vérifications\n`)
 process.exit(failures === 0 ? 0 : 1)

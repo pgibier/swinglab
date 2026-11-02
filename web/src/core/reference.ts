@@ -28,6 +28,12 @@ export interface MetricStats {
 export interface ReferenceProfile {
   /** Nom du corpus, affiché tel quel à l'utilisateur. */
   label: string
+  /**
+   * Provenance et limites du corpus, affichées dans le rapport.
+   * Un utilisateur doit pouvoir savoir à quoi il est comparé, et ce que la
+   * comparaison ne couvre pas.
+   */
+  note?: string
   clipsAnalysed: number
   clipsKept: number
   views: Partial<Record<ViewType, Record<string, MetricStats>>>

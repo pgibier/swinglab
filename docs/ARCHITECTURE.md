@@ -102,10 +102,21 @@ annotations différentes selon le défaut sélectionné — sans retraitement.
 ## Calibration
 
 Tous les seuils sont dans `web/src/core/config.ts`, en unités de torse (U) ou
-en degrés. Ils proviennent de la littérature biomécanique et de l'enseignement
-du golf, **pas** d'un ajustement sur données annotées : aucun jeu public
-n'étiquette les défauts de swing. Ils sont volontairement conservateurs —
-taire un défaut coûte moins cher que d'affirmer un faux positif à un débutant.
+en degrés. Un seul est calé sur des données : le **tempo**, mesuré sur les
+1 399 swings de professionnels annotés de GolfDB. Les onze autres viennent de
+la littérature biomécanique et de l'enseignement du golf, faute de jeu public
+étiquetant les défauts de swing. Ils sont volontairement conservateurs — taire
+un défaut coûte moins cher que d'affirmer un faux positif à un débutant.
+
+Ce que le calage du tempo a montré, et pourquoi il faut étendre la démarche :
+la bande 2,3–3,8 issue du « 3:1 » enseigné classait **33 % des professionnels
+du corpus en montée trop lente**. Mesure faite, la distribution réelle est
+centrée sur 3,39, avec p10 à 2,72 et p90 à 4,71. Un seuil plausible n'est pas
+un seuil juste, et seul un corpus le dit.
+
+Détail qui rend ce calage possible sans aucune vidéo : le tempo est un ratio
+de durées, donc invariant à la cadence d'enregistrement. Le corpus le confirme
+— médiane 3,43 sur les clips en temps réel, 3,38 sur les clips en ralenti.
 
 Chaque diagnostic sort avec une confiance = adéquation de la vue × fiabilité
 des phases utilisées × visibilité des points clés, plafonnée à 0,95 : aucune

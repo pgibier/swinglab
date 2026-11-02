@@ -89,8 +89,9 @@ seuil. Le corpus se construit avec
 [`research/build_reference.py`](research/README.md) et se dépose dans
 `web/public/reference/profile.json` ; l'app le charge alors automatiquement.
 
-**Aucun profil n'est livré** tant qu'aucun corpus réel n'a été mesuré : un
-profil synthétique serait trompeur.
+**Un profil réel est livré** : le tempo de **1 045 swings de professionnels**,
+mesuré sur les annotations de GolfDB. Les onze autres indicateurs n'ont pas
+encore de référence et n'affichent donc aucune comparaison.
 
 Validation de la détection de phases : voir [`research/`](research/README.md).
 Référence actuelle sur jeu synthétique — **97,5 % des phases à ±3 images**,
@@ -116,10 +117,13 @@ Avec `npm run setup:assets -- --models full`, les modèles sont inclus dans
   fiable, et à 30 i/s une tête de club est un trait flou. Les 4 phases que
   GolfDB définit par la position du club sont donc des approximations basées
   sur la hauteur des mains, avec une fiabilité plafonnée à 60 % dans l'app.
-- **Les seuils ne sont pas calés sur des données annotées.** Il n'existe aucun
-  jeu de données public étiqueté en défauts de swing. Ils viennent de la
-  littérature biomécanique et de l'enseignement du golf, et sont volontairement
-  conservateurs. Ils sont tous regroupés dans
+- **Un seul seuil sur douze est calé sur des données.** Le tempo l'est, sur
+  1 399 swings de pros annotés — et la mesure a corrigé une vraie erreur : la
+  bande « 3:1 » de l'enseignement classait **33 % des professionnels en montée
+  trop lente**. La vraie distribution est centrée sur 3,39 avec un 90ᵉ centile
+  à 4,71. Les onze autres seuils viennent de la littérature biomécanique, sans
+  calage sur données — il n'existe aucun jeu public étiqueté en défauts de
+  swing. Tous sont regroupés dans
   [`web/src/core/config.ts`](web/src/core/config.ts).
 - **La qualité de pose sur vraies vidéos n'a pas été mesurée ici.** Le moteur
   est validé sur séquences synthétiques et la chaîne navigateur sur une vidéo
