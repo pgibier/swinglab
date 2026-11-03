@@ -1,3 +1,5 @@
+import type { ClubKind } from './types'
+
 /**
  * SOURCE DE VÉRITÉ UNIQUE des constantes de calibration.
  * Aucun seuil ne doit être écrit en dur ailleurs dans le moteur.
@@ -160,7 +162,56 @@ export const EXTRACTION = {
  * Seuils par défaut. Chaque entrée définit la zone saine et les paliers de gravité.
  * `minor` / `major` sont des écarts au-delà de la zone saine.
  */
-export const FAULTS = {
+export interface BandThreshold {
+  /** Borne basse de la zone saine. */
+  idealMin: number
+  /** Borne haute de la zone saine. */
+  idealMax: number
+  /** Écart au-delà de la zone saine à partir duquel le défaut est « léger ». */
+  minor: number
+  /** Écart à partir duquel il est « important ». */
+  major: number
+}
+
+export interface UpThreshold {
+  /** Valeur typique d'un bon joueur, affichée à titre indicatif. */
+  ideal: number
+  minor: number
+  major: number
+}
+
+export interface ChickenWingThreshold {
+  idealMin: number
+  minor: number
+  major: number
+  windowStartSec: number
+  windowEndSec: number
+}
+
+export interface FinishBalanceThreshold {
+  ideal: number
+  minor: number
+  major: number
+  windowStartSec: number
+  windowLengthSec: number
+}
+
+export interface FaultThresholds {
+  setupSpineTilt: BandThreshold
+  setupKneeFlex: BandThreshold
+  setupStanceWidth: BandThreshold
+  sway: UpThreshold
+  slide: UpThreshold
+  reversePivot: UpThreshold
+  headMovement: UpThreshold
+  lossOfPosture: UpThreshold
+  earlyExtension: UpThreshold
+  chickenWing: ChickenWingThreshold
+  tempo: BandThreshold
+  finishBalance: FinishBalanceThreshold
+}
+
+export const FAULTS: FaultThresholds = {
   // =========================================================================
   // SEUILS CALÉS SUR DONNÉES — 409 swings de professionnels (GolfDB)
   //
@@ -253,7 +304,76 @@ export const FAULTS = {
     /** Longueur de la fenêtre, en secondes. */
     windowLengthSec: 0.5,
   },
-} as const
+}
+
+/**
+ * Groupe de calage utilisé pour chaque type de club.
+ *
+ * Mesuré sur le corpus : l'écartement des pieds va de 1,27× la largeur
+ * d'épaules au fer à 1,54× au driver, l'inclinaison du buste de 34° à 28°.
+ * Appliquer une bande unique revenait à ne détecter que les écarts francs.
+ *
+ * Le wedge emprunte la distribution des fers : le corpus n'en contient que
+ * quelques-uns, et inventer une bande sur si peu de swings serait pire que
+ * d'utiliser la famille la plus proche.
+ */
+export const CLUB_CALIBRATION_GROUP: Record<ClubKind, 'driver' | 'wood' | 'iron' | 'pooled'> = {
+  driver: 'driver',
+  wood: 'wood',
+  iron: 'iron',
+  wedge: 'iron',
+  unknown: 'pooled',
+}
+
+type ClubOverrides = { [K in keyof FaultThresholds]?: FaultThresholds[K] }
+
+/**
+ * Surcharges de seuils par groupe de clubs, mesurées sur le corpus.
+ *
+ * Émises uniquement là où l'effet du club est net — écart des médianes
+ * supérieur à 30 % de la dispersion interne des groupes. Pour le sway, le
+ * slide, le tempo, l'équilibre au finish et le chicken wing, la mesure ne
+ * montre pas d'effet : la bande commune s'applique.
+ *
+ * Le club déplace la BANDE ; la largeur des queues de gravité est estimée sur
+ * le corpus entier. Sur un groupe de 24 swings, l'écart entre 90e et 98e
+ * centile n'est connu qu'à quelques unités près, et s'en servir ferait sauter
+ * le diagnostic de « rien » à « important » en 1,6°.
+ */
+export const FAULTS_BY_CLUB: Record<'driver' | 'wood' | 'iron', ClubOverrides> = {
+  driver: {
+    earlyExtension: { ideal: 0.089, minor: 0.172, major: 0.221 },
+    headMovement: { ideal: 0.23, minor: 0.395, major: 0.534 },
+    lossOfPosture: { ideal: 6.3, minor: 12.0, major: 16.3 },
+    reversePivot: { ideal: 3.5, minor: 10.7, major: 14.0 },
+    setupKneeFlex: { idealMin: 150.1, idealMax: 168.0, minor: 1.7, major: 5.7 },
+    setupSpineTilt: { idealMin: 21.3, idealMax: 33.9, minor: 1.0, major: 3.5 },
+    setupStanceWidth: { idealMin: 1.33, idealMax: 1.84, minor: 0.06, major: 0.21 },
+  },
+  wood: {
+    earlyExtension: { ideal: 0.062, minor: 0.152, major: 0.201 },
+    headMovement: { ideal: 0.206, minor: 0.328, major: 0.467 },
+    lossOfPosture: { ideal: 5.0, minor: 9.6, major: 13.9 },
+    setupKneeFlex: { idealMin: 145.4, idealMax: 163.8, minor: 1.7, major: 5.7 },
+    setupSpineTilt: { idealMin: 24.4, idealMax: 38.7, minor: 1.0, major: 3.5 },
+  },
+  iron: {
+    earlyExtension: { ideal: 0.061, minor: 0.109, major: 0.158 },
+    headMovement: { ideal: 0.261, minor: 0.413, major: 0.552 },
+    lossOfPosture: { ideal: 4.1, minor: 8.3, major: 12.6 },
+    reversePivot: { ideal: 7.2, minor: 13.2, major: 16.5 },
+    setupKneeFlex: { idealMin: 145.2, idealMax: 164.5, minor: 1.7, major: 5.7 },
+    setupSpineTilt: { idealMin: 28.7, idealMax: 39.6, minor: 1.0, major: 3.5 },
+    setupStanceWidth: { idealMin: 0.97, idealMax: 1.45, minor: 0.06, major: 0.21 },
+  },
+}
+
+/** Seuils applicables au club choisi. */
+export function faultsFor(club: ClubKind): FaultThresholds {
+  const group = CLUB_CALIBRATION_GROUP[club]
+  if (group === 'pooled') return FAULTS
+  return { ...FAULTS, ...FAULTS_BY_CLUB[group] }
+}
 
 /** Poids de chaque gravité dans le score global sur 100. */
 export const SCORE_PENALTY: Record<'none' | 'minor' | 'moderate' | 'major', number> = {

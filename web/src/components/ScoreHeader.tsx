@@ -1,4 +1,5 @@
 import { VIEW_LABELS } from '../lib/labels'
+import { CLUB_LABELS } from '../lib/clubs'
 import type { SwingReport } from '../core/types'
 
 interface Props {
@@ -61,6 +62,9 @@ export function ScoreHeader({ report, modelInfo }: Props) {
         </span>
         <span className="rounded-lg border border-line bg-surface-2 px-2 py-1">
           {meta.handedness === 'right' ? 'Droitier' : 'Gaucher'}
+        </span>
+        <span className="rounded-lg border border-line bg-surface-2 px-2 py-1">
+          {meta.club === 'unknown' ? 'Club non précisé' : CLUB_LABELS[meta.club]}
         </span>
         <span className="rounded-lg border border-line bg-surface-2 px-2 py-1 tabular-nums">
           {Math.round(meta.fps)} i/s analysées

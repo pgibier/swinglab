@@ -38,6 +38,15 @@ export interface PoseSequence {
 }
 
 export type ViewType = 'face_on' | 'down_the_line' | 'unknown'
+
+/**
+ * Famille de club utilisée pour le swing analysé.
+ *
+ * Elle change réellement ce qui est « normal » : mesuré sur un corpus de
+ * professionnels, l'écartement des pieds passe de 1,27× la largeur d'épaules
+ * au fer à 1,54× au driver, et l'inclinaison du buste de 34° à 28°.
+ */
+export type ClubKind = 'driver' | 'wood' | 'iron' | 'wedge' | 'unknown'
 export type Handedness = 'right' | 'left'
 
 /** Les 8 événements du swing (nomenclature GolfDB). */
@@ -141,6 +150,8 @@ export interface SwingQuality {
 
 export interface SwingReport {
   meta: {
+    /** Club déclaré par l'utilisateur, qui détermine les zones saines appliquées. */
+    club: ClubKind
     view: ViewType
     viewConfidence: number
     handedness: Handedness

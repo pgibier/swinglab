@@ -1,6 +1,5 @@
 /** Règles du backswing (montée). */
 
-import { FAULTS } from '../config'
 import { argMax } from '../geometry'
 import { makeFault, requireView, ruleConfidence, severityFrom, type Rule } from './common'
 
@@ -27,7 +26,7 @@ export const sway: Rule = (ctx) => {
   }
   if (worst === 0 && !Number.isFinite(ctx.metrics.hipLateral[top])) return null
 
-  const { minor, major } = FAULTS.sway
+  const { minor, major } = ctx.faults.sway
   const severity = severityFrom(worst, minor, major)
 
   return makeFault({
@@ -63,7 +62,7 @@ export const reversePivot: Rule = (ctx) => {
 
   // spineLean > 0 = buste incliné vers la cible = faute au sommet du backswing.
   const value = atTop
-  const { minor, major } = FAULTS.reversePivot
+  const { minor, major } = ctx.faults.reversePivot
   const severity = severityFrom(value, minor, major)
 
   return makeFault({
@@ -95,7 +94,7 @@ export const headMovement: Rule = (ctx) => {
   const value = ctx.metrics.headShift[frame]
   if (!Number.isFinite(value)) return null
 
-  const { minor, major } = FAULTS.headMovement
+  const { minor, major } = ctx.faults.headMovement
   const severity = severityFrom(value, minor, major)
 
   return makeFault({

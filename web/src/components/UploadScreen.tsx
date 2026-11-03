@@ -1,8 +1,12 @@
 import { useRef } from 'react'
+import { ClubSelector } from './ClubSelector'
+import type { ClubKind } from '../core/types'
 
 interface Props {
   onFile: (file: File) => void
   busy: boolean
+  club: ClubKind
+  onClubChange: (club: ClubKind) => void
 }
 
 const TIPS: Array<{ title: string; body: string }> = [
@@ -24,7 +28,7 @@ const TIPS: Array<{ title: string; body: string }> = [
   },
 ]
 
-export function UploadScreen({ onFile, busy }: Props) {
+export function UploadScreen({ onFile, busy, club, onClubChange }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
 
   return (
@@ -44,6 +48,8 @@ export function UploadScreen({ onFile, busy }: Props) {
           envoyée nulle part et ne quitte jamais l&rsquo;appareil.
         </p>
       </header>
+
+      <ClubSelector value={club} onChange={onClubChange} />
 
       <div className="flex flex-col gap-3">
         <button

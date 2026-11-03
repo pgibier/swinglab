@@ -18,7 +18,7 @@
  * Usage :  node scripts/e2e.mjs <chemin-video.mp4>
  */
 
-import { spawn } from 'node:child_process'
+import { spawn, execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { argv, exit } from 'node:process'
 
@@ -91,6 +91,31 @@ check('titre affiché', (await page.textContent('h1'))?.includes('Filme ton swin
 check('bouton d’import présent', await page.isVisible('text=Choisir une vidéo'))
 
 console.log('\n[2] Moteur exécuté dans le navigateur (swing synthétique)')
+
+// Référence calculée par Node à l'instant : le test compare les deux
+// environnements entre eux, plutôt que des valeurs figées qui se périment à
+// chaque évolution du détecteur.
+const nodeReference = JSON.parse(
+  execFileSync(
+    'npx',
+    ['tsx', '-e', `
+      import { analyzeSequence } from './src/core/report'
+      import { synthSwing } from './scripts/synth'
+      const clean = analyzeSequence(synthSwing({ view: 'face_on' }))
+      const swayed = analyzeSequence(synthSwing({ view: 'face_on', swayU: 0.3 }))
+      if (!clean.ok || !swayed.ok) throw new Error('analyse refusée côté Node')
+      console.log(JSON.stringify({
+        view: clean.report.meta.view,
+        handedness: clean.report.meta.handedness,
+        events: clean.report.events,
+        cleanScore: clean.report.score,
+        swaySeverity: swayed.report.faults.find((f) => f.id === 'sway')?.severity,
+      }))
+    `],
+    { cwd: process.cwd(), encoding: 'utf8' },
+  ).trim().split('\n').pop(),
+)
+
 const engineResult = await page.evaluate(async () => {
   const [{ analyzeSequence }, { synthSwing }] = await Promise.all([
     import('/src/core/index.ts'),
@@ -108,12 +133,17 @@ const engineResult = await page.evaluate(async () => {
   }
 })
 check('moteur importable et exécutable dans le navigateur', !engineResult.error, engineResult.error)
-check('même vue détectée que dans Node', engineResult.view === 'face_on', engineResult.view)
-check('même latéralité détectée', engineResult.handedness === 'right', engineResult.handedness)
-check('mêmes frames de sommet/impact', engineResult.events?.top === 74 && engineResult.events?.impact === 90,
-  JSON.stringify(engineResult.events))
-check('swing propre noté 100', engineResult.cleanScore === 100, String(engineResult.cleanScore))
+check('même vue détectée que dans Node', engineResult.view === nodeReference.view, engineResult.view)
+check('même latéralité détectée', engineResult.handedness === nodeReference.handedness, engineResult.handedness)
+check(
+  'mêmes frames pour les 8 phases que dans Node',
+  JSON.stringify(engineResult.events) === JSON.stringify(nodeReference.events),
+  `navigateur ${JSON.stringify(engineResult.events)} vs node ${JSON.stringify(nodeReference.events)}`,
+)
+check('même score que dans Node', engineResult.cleanScore === nodeReference.cleanScore,
+  `${engineResult.cleanScore} vs ${nodeReference.cleanScore}`)
 check('sway détecté comme important', engineResult.swaySeverity === 'major', engineResult.swaySeverity)
+check('sway jugé pareil que dans Node', engineResult.swaySeverity === nodeReference.swaySeverity)
 
 console.log('\n[3] Chaîne réelle : WASM, modèle, décodage, seek, inférence')
 const requests = []

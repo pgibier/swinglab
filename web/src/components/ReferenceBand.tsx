@@ -1,7 +1,9 @@
-import { bandLayout, percentileOf, type MetricStats } from '../core/reference'
+import { bandLayout, percentileOf, type MetricStats, type ReferenceScope } from '../core/reference'
 
 interface Props {
   stats: MetricStats
+  /** 'club' quand la référence correspond au club choisi, 'all' sinon. */
+  scope: ReferenceScope
   value: number
   unit: string
   profileLabel: string
@@ -15,7 +17,7 @@ const fmt = (v: number): string =>
  * Aucun jugement de direction : selon la métrique, être au-dessus ou en
  * dessous de la bande peut être bon, mauvais, ou juste différent.
  */
-export function ReferenceBand({ stats, value, unit, profileLabel }: Props) {
+export function ReferenceBand({ stats, scope, value, unit, profileLabel }: Props) {
   const layout = bandLayout(stats, value)
   if (!layout) return null
   const pct = percentileOf(stats, value)
@@ -27,7 +29,7 @@ export function ReferenceBand({ stats, value, unit, profileLabel }: Props) {
           Comparaison
         </span>
         <span className="text-[0.66rem] text-muted">
-          {profileLabel} · n&nbsp;=&nbsp;{stats.n}
+          {profileLabel} · {scope === 'club' ? 'même club' : 'tous clubs'} · n&nbsp;=&nbsp;{stats.n}
         </span>
       </div>
 

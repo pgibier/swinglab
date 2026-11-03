@@ -1,6 +1,5 @@
 /** Règles d'adresse (setup). */
 
-import { FAULTS } from '../config'
 import { LM } from '../landmarks'
 import { medianOver } from '../geometry'
 import { hasAll, pt } from '../smoothing'
@@ -24,7 +23,7 @@ export const spineTiltAtAddress: Rule = (ctx) => {
   const value = medianOver(ctx.metrics.spineTilt, ctx.addressWindow.start, ctx.addressWindow.end)
   if (!Number.isFinite(value)) return null
 
-  const { idealMin, idealMax, minor, major } = FAULTS.setupSpineTilt
+  const { idealMin, idealMax, minor, major } = ctx.faults.setupSpineTilt
   const deviation = value < idealMin ? idealMin - value : value > idealMax ? value - idealMax : 0
   const severity = severityFrom(deviation, minor, major)
   const tooUpright = value < idealMin
@@ -59,7 +58,7 @@ export const kneeFlexAtAddress: Rule = (ctx) => {
   const value = medianOver(ctx.metrics.kneeFlex, ctx.addressWindow.start, ctx.addressWindow.end)
   if (!Number.isFinite(value)) return null
 
-  const { idealMin, idealMax, minor, major } = FAULTS.setupKneeFlex
+  const { idealMin, idealMax, minor, major } = ctx.faults.setupKneeFlex
   const deviation = value < idealMin ? idealMin - value : value > idealMax ? value - idealMax : 0
   const severity = severityFrom(deviation, minor, major)
   const tooStraight = value > idealMax
@@ -97,7 +96,7 @@ export const stanceWidthAtAddress: Rule = (ctx) => {
   if (shoulderSep < 1e-6) return null
   const ratio = ankleSep / shoulderSep
 
-  const { idealMin, idealMax, minor, major } = FAULTS.setupStanceWidth
+  const { idealMin, idealMax, minor, major } = ctx.faults.setupStanceWidth
   const deviation = ratio < idealMin ? idealMin - ratio : ratio > idealMax ? ratio - idealMax : 0
   const severity = severityFrom(deviation, minor, major)
   const tooNarrow = ratio < idealMin

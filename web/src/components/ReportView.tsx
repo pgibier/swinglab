@@ -42,7 +42,7 @@ export function ReportView({ report, selectedFaultId, onSelectFault, reference }
                 fault={fault}
                 selected={selectedFaultId === fault.id}
                 onSelect={() => onSelectFault(fault)}
-                referenceStats={statsFor(reference ?? null, report.meta.view, fault.id)}
+                reference={statsFor(reference ?? null, report.meta.view, fault.id, report.meta.club)}
                 referenceLabel={reference?.label}
               />
             ))}

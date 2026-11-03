@@ -1,11 +1,12 @@
 /** Socle commun aux règles de diagnostic. */
 
-import { SCORE_PENALTY } from '../config'
+import { SCORE_PENALTY, type FaultThresholds } from '../config'
 import { CORE_LANDMARKS } from '../landmarks'
 import { clamp, meanFinite } from '../geometry'
 import type { CleanedPose } from '../smoothing'
 import type { BodyRef } from '../normalize'
 import type {
+  ClubKind,
   FaultResult,
   MetricSeries,
   Severity,
@@ -22,6 +23,13 @@ export interface FaultContext {
   events: SwingEvents
   /** Plage d'immobilité à l'adresse, sur laquelle les mesures de setup sont moyennées. */
   addressWindow: { start: number; end: number }
+  /** Club déclaré par l'utilisateur ; 'unknown' s'il ne l'a pas précisé. */
+  club: ClubKind
+  /**
+   * Seuils applicables à ce club. Les règles lisent ICI et jamais la constante
+   * globale : plusieurs d'entre elles ont une zone saine qui dépend du club.
+   */
+  faults: FaultThresholds
   eventConfidence: SwingEventConfidence
   metrics: MetricSeries
   quality: SwingQuality

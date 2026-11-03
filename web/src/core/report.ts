@@ -5,7 +5,7 @@
  * métriques → règles → score.
  */
 
-import { QUALITY, SCORE_FLOOR } from './config'
+import { QUALITY, SCORE_FLOOR, faultsFor } from './config'
 import { CORE_LANDMARKS, LM } from './landmarks'
 import { clamp, dist, meanFinite } from './geometry'
 import { hasAll, pt, cleanSequence, type CleanedPose } from './smoothing'
@@ -13,7 +13,7 @@ import { buildReference } from './normalize'
 import { computeSignals, detectEvents } from './events'
 import { computeMetrics } from './metrics'
 import { ALL_RULES, isNotEvaluated, penaltyOf, type FaultContext } from './faults'
-import type { FaultResult, PoseSequence, SwingQuality, SwingReport } from './types'
+import type { ClubKind, FaultResult, PoseSequence, SwingQuality, SwingReport } from './types'
 
 export type AnalysisOutcome =
   | { ok: true; report: SwingReport }
@@ -37,7 +37,21 @@ function footDriftU(c: CleanedPose, addressFrame: number, impactFrame: number, s
   return dist(at(addressFrame), at(impactFrame)) / scale
 }
 
-export function analyzeSequence(seq: PoseSequence): AnalysisOutcome {
+export interface AnalysisOptions {
+  /**
+   * Club utilisé pour ce swing. Plusieurs zones saines en dépendent
+   * réellement — écartement des pieds, inclinaison du buste, perte de
+   * posture. Sans cette information, l'analyse applique une bande commune à
+   * tous les clubs, qui ne détecte que les écarts francs.
+   */
+  club?: ClubKind
+}
+
+export function analyzeSequence(
+  seq: PoseSequence,
+  options: AnalysisOptions = {},
+): AnalysisOutcome {
+  const club: ClubKind = options.club ?? 'unknown'
   const n = seq.frames.length
   if (n === 0 || seq.fps <= 0) {
     return { ok: false, error: 'Vidéo vide ou illisible.', hint: 'Réessaie avec un fichier MP4 ou MOV.' }
@@ -82,7 +96,11 @@ export function analyzeSequence(seq: PoseSequence): AnalysisOutcome {
     footDrift: footDriftU(c, events.address, events.impact, ref.scale),
   }
 
-  const ctx: FaultContext = { c, ref, events, addressWindow, eventConfidence, metrics, quality }
+  const ctx: FaultContext = {
+    c, ref, events, addressWindow, eventConfidence, metrics, quality,
+    club,
+    faults: faultsFor(club),
+  }
 
   const faults: FaultResult[] = []
   const notEvaluatedList: SwingReport['notEvaluated'] = []
@@ -154,6 +172,7 @@ export function analyzeSequence(seq: PoseSequence): AnalysisOutcome {
     ok: true,
     report: {
       meta: {
+        club,
         view: ref.view,
         viewConfidence: ref.viewConfidence,
         handedness: ref.handedness,

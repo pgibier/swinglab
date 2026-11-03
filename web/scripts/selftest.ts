@@ -9,7 +9,7 @@
  *   npx tsx scripts/selftest.ts
  */
 
-import { analyzeSequence } from '../src/core/report'
+import { analyzeSequence, type AnalysisOptions } from '../src/core/report'
 import { SWING_EVENTS, type SwingReport } from '../src/core/types'
 import { synthSwing, type SynthOptions } from './synth'
 
@@ -26,8 +26,8 @@ function check(label: string, condition: boolean, detail = ''): void {
   }
 }
 
-function analyze(name: string, opts: SynthOptions): SwingReport {
-  const outcome = analyzeSequence(synthSwing(opts))
+function analyze(name: string, opts: SynthOptions, options: AnalysisOptions = {}): SwingReport {
+  const outcome = analyzeSequence(synthSwing(opts), options)
   if (!outcome.ok) {
     failures++
     checks++
@@ -275,6 +275,45 @@ console.log('\n[15] Tempo : la zone saine doit accepter les tempos de pros')
   })
   check('montée franchement trop lente détectée', sev(slow, 'tempo') !== 'none',
     `${sev(slow, 'tempo')} (${val(slow, 'tempo')}:1)`)
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n[16] Le club doit changer le verdict, pas seulement l\u2019affichage')
+// ---------------------------------------------------------------------------
+{
+  // Un même swing jugé selon deux clubs. Sans ce test, la sélection de club
+  // pourrait n'avoir aucun effet réel sans que rien ne le signale.
+  const wide = { view: 'face_on' as const, stanceRatio: 1.75 }
+  const asDriver = analyze('stance driver', wide, { club: 'driver' })
+  const asIron = analyze('stance fer', wide, { club: 'iron' })
+  check('appuis à 1,75 : normaux au driver', sev(asDriver, 'setup_stance_width') === 'none',
+    `${sev(asDriver, 'setup_stance_width')} (${val(asDriver, 'setup_stance_width')})`)
+  check('appuis à 1,75 : trop larges au fer', sev(asIron, 'setup_stance_width') !== 'none',
+    `${sev(asIron, 'setup_stance_width')}`)
+
+  const upright = { view: 'down_the_line' as const, spineTiltDeg: 24 }
+  const tiltDriver = analyze('buste driver', upright, { club: 'driver' })
+  const tiltIron = analyze('buste fer', upright, { club: 'iron' })
+  check('buste à 24° : normal au driver', sev(tiltDriver, 'setup_spine_tilt') === 'none',
+    `${sev(tiltDriver, 'setup_spine_tilt')} (${val(tiltDriver, 'setup_spine_tilt')}°)`)
+  check('buste à 24° : trop droit au fer', sev(tiltIron, 'setup_spine_tilt') !== 'none',
+    `${sev(tiltIron, 'setup_spine_tilt')}`)
+
+  // Le wedge emprunte la distribution des fers.
+  const wedge = analyze('appuis wedge', wide, { club: 'wedge' })
+  check('le wedge suit le calage des fers',
+    sev(wedge, 'setup_stance_width') === sev(asIron, 'setup_stance_width'))
+
+  // Sans club, la bande commune ne doit pas être plus stricte que les deux.
+  const unknown = analyze('appuis sans club', wide)
+  check('sans club, la bande commune reste tolérante',
+    sev(unknown, 'setup_stance_width') === 'none',
+    `${sev(unknown, 'setup_stance_width')}`)
+
+  // Le club ne doit PAS bouger les règles que la mesure dit indépendantes.
+  const sd = analyze('sway driver', { view: 'face_on', swayU: 0.3 }, { club: 'driver' })
+  const si = analyze('sway fer', { view: 'face_on', swayU: 0.3 }, { club: 'iron' })
+  check('le sway ne dépend pas du club', sev(sd, 'sway') === sev(si, 'sway'))
 }
 
 // ---------------------------------------------------------------------------

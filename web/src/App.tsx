@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { UploadScreen } from './components/UploadScreen'
+import { ClubSelector } from './components/ClubSelector'
 import { Processing } from './components/Processing'
 import { ScoreHeader } from './components/ScoreHeader'
 import { PhaseStrip } from './components/PhaseStrip'
@@ -9,8 +10,9 @@ import { ModelLoadError, loadLandmarker, type LoadedLandmarker } from './pose/me
 import { extractPoseSequence, loadVideo } from './pose/extract'
 import { analyzeSequence } from './core'
 import { loadReferenceProfile } from './lib/loadReference'
+import { loadClub, saveClub } from './lib/clubs'
 import type { ReferenceProfile } from './core/reference'
-import type { FaultResult, PoseSequence, SwingReport } from './core/types'
+import type { ClubKind, FaultResult, PoseSequence, SwingReport } from './core/types'
 
 interface Analysis {
   url: string
@@ -31,6 +33,7 @@ export default function App() {
   const [seekRequest, setSeekRequest] = useState<SeekRequest | null>(null)
   const [currentFrame, setCurrentFrame] = useState(0)
   const [reference, setReference] = useState<ReferenceProfile | null>(null)
+  const [club, setClub] = useState<ClubKind>(() => loadClub())
 
   // Le corpus de comparaison est facultatif : s'il n'est pas publié avec le
   // site, l'app n'affiche simplement aucune comparaison.
@@ -48,9 +51,30 @@ export default function App() {
   const landmarkerRef = useRef<LoadedLandmarker | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const urlRef = useRef<string | null>(null)
+  // Lu dans handleFile sans le faire dépendre de `club`, pour que la fonction
+  // reste stable entre deux rendus.
+  const clubRef = useRef<ClubKind>(club)
+  clubRef.current = club
 
   const seekTo = useCallback((frame: number) => {
     setSeekRequest((prev) => ({ frame, nonce: (prev?.nonce ?? 0) + 1 }))
+  }, [])
+
+  /**
+   * Changer de club ne nécessite PAS de refaire la détection de pose : la
+   * séquence de points clés est déjà calculée, seules les règles changent.
+   * Le rapport se met donc à jour instantanément.
+   */
+  const changeClub = useCallback((next: ClubKind) => {
+    setClub(next)
+    saveClub(next)
+    setStage((prev) => {
+      if (prev.k !== 'done') return prev
+      const outcome = analyzeSequence(prev.data.sequence, { club: next })
+      if (!outcome.ok) return prev
+      return { ...prev, data: { ...prev.data, report: outcome.report } }
+    })
+    setSelectedFault(null)
   }, [])
 
   const reset = useCallback(() => {
@@ -117,7 +141,7 @@ export default function App() {
       })
 
       setStage({ k: 'working', label: 'Analyse du swing…', ratio: 0.98 })
-      const outcome = analyzeSequence(sequence)
+      const outcome = analyzeSequence(sequence, { club: clubRef.current })
       if (!outcome.ok) {
         setStage({ k: 'error', message: outcome.error, hint: outcome.hint })
         return
@@ -198,6 +222,18 @@ export default function App() {
 
         <ScoreHeader report={data.report} modelInfo={data.modelInfo} />
 
+        <div className="rounded-2xl border border-line bg-surface p-3.5">
+          <p className="mb-2 text-xs font-semibold tracking-[0.14em] text-muted uppercase">
+            Club utilisé
+          </p>
+          <ClubSelector value={club} onChange={changeClub} compact />
+          <p className="mt-2 text-[0.74rem] leading-relaxed text-muted">
+            Change-le pour réévaluer ce swing&nbsp;: l&rsquo;analyse est immédiate, la
+            vidéo n&rsquo;est pas retraitée. Sept règles sur douze ont une zone saine
+            qui dépend du club.
+          </p>
+        </div>
+
         <SwingPlayer
           url={data.url}
           sequence={data.sequence}
@@ -222,5 +258,15 @@ export default function App() {
     )
   }
 
-  return <UploadScreen onFile={handleFile} busy={false} />
+  return (
+    <UploadScreen
+      onFile={handleFile}
+      busy={false}
+      club={club}
+      onClubChange={(next) => {
+        setClub(next)
+        saveClub(next)
+      }}
+    />
+  )
 }

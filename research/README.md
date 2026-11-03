@@ -129,6 +129,37 @@ suite de tests (`npm test`, cas 14) vérifie qu'aucun défaut « important » ne
 déclenche sur 24 swings de bon niveau. C'est ce contrôle qui a révélé que la
 règle de stabilité de tête produisait un faux positif systématique.
 
+## Caler les seuils sur un corpus
+
+`calibrate.py` enchaîne les quatre mesures qui ont servi au calage actuel.
+Toutes travaillent sur la sortie de `analyze.ts --batch`, donc sur le moteur
+réellement livré.
+
+```bash
+# analyser tout le corpus, chaque clip avec SON club
+npx --prefix ../web tsx ../web/scripts/analyze.ts --batch data/points \
+    -o data/metrics.jsonl --clubs data/labels.json
+
+python calibrate.py firing      data/metrics.jsonl   # taux de déclenchement
+python calibrate.py suggest     data/metrics.jsonl   # seuils proposés
+python calibrate.py clubs       data/metrics.jsonl --labels data/labels.json
+python calibrate.py club-config data/metrics.jsonl --labels data/labels.json
+```
+
+**`firing` est la mesure qui compte.** Une règle qui se déclenche souvent sur
+de bons joueurs est mal calée — elle produira du faux positif chez
+l'utilisateur. Avant calage, six règles sur douze dépassaient 25 %, la
+stabilité de tête atteignait 84 %. Après, aucune ne dépasse 14 %.
+
+**Le filtrage n'est pas cosmétique.** Sans écarter les clips à caméra instable
+et à phases incertaines, les distributions étaient contaminées au point de
+produire des seuils absurdes : un coude avant à 45° au 2e centile, un tempo de
+0,12. Comparer avec et sans :
+
+```bash
+python calibrate.py suggest data/metrics.jsonl --no-filter
+```
+
 ## Calibrer sans vidéo : le tempo des professionnels
 
 Les annotations de GolfDB sont **committées dans le dépôt** : un `git clone`

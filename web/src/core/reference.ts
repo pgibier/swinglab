@@ -14,7 +14,8 @@
  * qu'un côté est systématiquement meilleur.
  */
 
-import type { ViewType } from './types'
+import { CLUB_CALIBRATION_GROUP } from './config'
+import type { ClubKind, ViewType } from './types'
 
 export interface MetricStats {
   /** Nombre de swings ayant contribué à cette métrique. */
@@ -36,7 +37,24 @@ export interface ReferenceProfile {
   note?: string
   clipsAnalysed: number
   clipsKept: number
+  /** Centiles tous clubs confondus. */
   views: Partial<Record<ViewType, Record<string, MetricStats>>>
+  /**
+   * Centiles par famille de club, là où l'échantillon le permettait.
+   * Plusieurs indicateurs en dépendent réellement : comparer un swing au fer
+   * à une référence majoritairement composée de drivers fausse le verdict.
+   */
+  byClub?: Partial<
+    Record<'driver' | 'wood' | 'iron', Partial<Record<ViewType, Record<string, MetricStats>>>>
+  >
+}
+
+/** D'où vient la référence affichée. */
+export type ReferenceScope = 'club' | 'all'
+
+export interface ReferenceMatch {
+  stats: MetricStats
+  scope: ReferenceScope
 }
 
 /**
@@ -63,15 +81,26 @@ export function isReferenceProfile(value: unknown): value is ReferenceProfile {
   return true
 }
 
+/**
+ * Statistiques de référence pour une métrique, en préférant la famille de
+ * club quand elle est disponible : une bande « tous clubs » est
+ * majoritairement composée de drivers et déplacerait le verdict d'un swing au
+ * fer.
+ */
 export function statsFor(
   profile: ReferenceProfile | null,
   view: ViewType,
   metricId: string,
-): MetricStats | null {
+  club: ClubKind = 'unknown',
+): ReferenceMatch | null {
   if (!profile) return null
-  const metrics = profile.views[view]
-  if (!metrics) return null
-  return metrics[metricId] ?? null
+  const group = CLUB_CALIBRATION_GROUP[club]
+  if (group !== 'pooled') {
+    const clubStats = profile.byClub?.[group]?.[view]?.[metricId]
+    if (clubStats) return { stats: clubStats, scope: 'club' }
+  }
+  const pooled = profile.views[view]?.[metricId]
+  return pooled ? { stats: pooled, scope: 'all' } : null
 }
 
 /** Les rangs de centiles disponibles, triés. */

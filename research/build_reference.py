@@ -77,6 +77,9 @@ def main() -> None:
         help="métadonnées du corpus (corpus.json) : niveau, club, vue par clip",
     )
     parser.add_argument("--label", default="reference", help="nom du corpus dans le profil")
+    parser.add_argument("--labels", type=Path,
+                        help="labels.json : permet de produire aussi des centiles PAR CLUB, "
+                             "ce qui compte pour les règles dont la zone saine en dépend")
     # Seuils de qualité : un clip en dessous est écarté plutôt que de polluer
     # les centiles. Volontairement stricts — mieux vaut 200 clips propres que
     # 1400 clips bruités.
@@ -109,8 +112,21 @@ def main() -> None:
             raise SystemExit(f"Aucun fichier de points clés dans {args.landmarks_dir}")
         results = [engine_metrics(f) for f in files]
 
+    # Groupes de calage par club, identiques à ceux du moteur.
+    CLUB_GROUP = {"driver": "driver", "fairway": "wood", "hybrid": "wood",
+                  "iron": "iron", "wedge": "iron"}
+    club_of: dict[str, str] = {}
+    if args.labels:
+        for clip in json.loads(args.labels.read_text())["clips"]:
+            group = CLUB_GROUP.get(clip.get("club", ""))
+            if group:
+                club_of[str(clip["id"])] = group
+
     # values[vue][métrique] = liste de valeurs
     values: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    # by_club[groupe][vue][métrique] = liste de valeurs
+    by_club: dict[str, dict[str, dict[str, list[float]]]] = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(list)))
     kept = 0
     rejected: dict[str, int] = defaultdict(int)
 
@@ -142,8 +158,11 @@ def main() -> None:
             rejected["caméra instable"] += 1
             continue
 
+        group = club_of.get(str(result.get("id", "")))
         for metric, value in result["metrics"].items():
             values[result["view"]][metric].append(float(value))
+            if group:
+                by_club[group][result["view"]][metric].append(float(value))
         kept += 1
 
     total = len(results)
@@ -186,6 +205,32 @@ def main() -> None:
         if entry:
             profile["views"][view] = entry
 
+    # Centiles par club, là où l'échantillon le permet. Publier une référence
+    # sur quelques swings serait plus trompeur que de ne rien publier.
+    club_block: dict = {}
+    for group, views_ in by_club.items():
+        gentry: dict = {}
+        for view, metrics in views_.items():
+            ventry = {}
+            for metric, raw in sorted(metrics.items()):
+                arr = np.asarray(raw, dtype=float)
+                if arr.size < args.min_samples:
+                    continue
+                ventry[metric] = {
+                    "n": int(arr.size),
+                    "mean": round(float(arr.mean()), 3),
+                    "sd": round(float(arr.std(ddof=1)), 3),
+                    "percentiles": {
+                        str(p): round(float(np.percentile(arr, p)), 3) for p in PERCENTILES
+                    },
+                }
+            if ventry:
+                gentry[view] = ventry
+        if gentry:
+            club_block[group] = gentry
+    if club_block:
+        profile["byClub"] = club_block
+
     if not profile["views"]:
         raise SystemExit(
             "Aucune métrique n'atteint le nombre minimal d'échantillons "
@@ -195,6 +240,9 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(profile, indent=1, ensure_ascii=False))
     print(f"\n✓ profil → {args.out}")
+    for group, views_ in sorted(club_block.items()):
+        total = sum(len(m) for m in views_.values())
+        print(f"  par club · {group} : {total} métriques sur {len(views_)} vue(s)")
     for view, metrics in profile["views"].items():
         print(f"\n  {view} ({len(metrics)} métriques)")
         print(f"    {'métrique':<22}{'n':>5}{'p10':>9}{'médiane':>10}{'p90':>9}")

@@ -1,6 +1,5 @@
 /** Règles de la descente et de l'impact. */
 
-import { FAULTS } from '../config'
 import { argMax, medianOver } from '../geometry'
 import { makeFault, requireView, ruleConfidence, severityFrom, type Rule } from './common'
 
@@ -20,7 +19,7 @@ export const earlyExtension: Rule = (ctx) => {
   const value = ctx.metrics.hipTowardBall[frame]
   if (!Number.isFinite(value)) return null
 
-  const { minor, major } = FAULTS.earlyExtension
+  const { minor, major } = ctx.faults.earlyExtension
   const severity = severityFrom(value, minor, major)
 
   return makeFault({
@@ -52,7 +51,7 @@ export const lateralSlide: Rule = (ctx) => {
   const value = ctx.metrics.hipLateral[frame]
   if (!Number.isFinite(value)) return null
 
-  const { minor, major } = FAULTS.slide
+  const { minor, major } = ctx.faults.slide
   const severity = severityFrom(value, minor, major)
 
   return makeFault({
@@ -95,7 +94,7 @@ export const lossOfPosture: Rule = (ctx) => {
   }
   if (worst === 0) return null
 
-  const { minor, major } = FAULTS.lossOfPosture
+  const { minor, major } = ctx.faults.lossOfPosture
   const severity = severityFrom(worst, minor, major)
   const standingUp = ctx.metrics.spineTilt[frame] < base
 
@@ -128,7 +127,7 @@ export const chickenWing: Rule = (ctx) => {
   if (skip) return skip
 
   const { impact } = ctx.events
-  const { idealMin, minor, major, windowStartSec, windowEndSec } = FAULTS.chickenWing
+  const { idealMin, minor, major, windowStartSec, windowEndSec } = ctx.faults.chickenWing
   // Fenêtre fixée en secondes après l'impact : c'est là que le bras avant doit
   // s'étendre. Au mi-finish, les bras se replient chez tout le monde.
   const from = Math.min(ctx.c.n - 1, impact + Math.round(windowStartSec * ctx.c.fps))

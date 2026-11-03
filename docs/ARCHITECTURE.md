@@ -141,11 +141,32 @@ l'adresse n'y est pas définie de la même façon. Référence et mesure doivent
 passer par le même code, sans quoi on compare l'utilisateur à autre chose que
 ce qu'on lui mesure.
 
-**Deux règles dépendent du club** — écartement des pieds (1,27× la largeur
-d'épaules au fer contre 1,54× au driver) et inclinaison du buste (34° contre
-28°). L'app ne connaissant pas le club, leurs bandes couvrent tous les clubs et
-ne détectent que les écarts francs. Demander le club à l'utilisateur les
-rendrait nettement plus fines.
+**Calage par famille de club.** Le club change ce qui est normal : écartement
+des pieds de 1,27× la largeur d'épaules au fer contre 1,54× au driver,
+inclinaison du buste de 34° contre 28°. Une surcharge de seuils n'est émise que
+là où la mesure la justifie — écart des médianes supérieur à 30 % de la
+dispersion interne des groupes :
+
+| dépend du club | effet modéré | indépendant |
+|---|---|---|
+| écartement des pieds (1,26) | early extension (0,38) | tempo (0,22) |
+| inclinaison du buste (1,02) | genoux à l'adresse (0,42) | slide (0,21) |
+| perte de posture (0,55) | stabilité de la tête (0,41) | équilibre au finish (0,20) |
+| | reverse pivot (0,34) | chicken wing (0,14), sway (0,02) |
+
+Le club déplace la **bande** ; la largeur des queues de gravité est estimée sur
+le corpus entier. Sur un groupe de 24 swings, l'écart entre 90ᵉ et 98ᵉ centile
+n'est connu qu'à quelques unités près, et s'en servir ferait sauter le
+diagnostic de « rien » à « important » en 1,6°.
+
+Le wedge emprunte la distribution des fers : le corpus n'en contient que
+quelques-uns, et inventer une bande sur si peu de swings serait pire que
+d'utiliser la famille la plus proche. Sans club précisé, la bande commune
+s'applique.
+
+Vérification : analysé avec le club réel de chaque clip, le corpus déclenche
+10 à 14 % de défauts « légers » et 0 à 5 % d'« importants » par règle — la
+cible visée.
 
 **Réserve** : ce corpus est fait d'images de retransmission. Les conditions de
 prise de vue diffèrent d'un téléphone posé au sol, et les valeurs restent des

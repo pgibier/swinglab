@@ -1,6 +1,6 @@
 /** Règles de tempo et de finish. */
 
-import { FAULTS, QUALITY } from '../config'
+import { QUALITY } from '../config'
 import { stdFinite } from '../geometry'
 import {
   makeFault, notEvaluated, requireView, ruleConfidence, severityFrom, type Rule,
@@ -29,7 +29,7 @@ export const tempo: Rule = (ctx) => {
   if (backFrames < 2) return null
 
   const ratio = backFrames / downFrames
-  const { idealMin, idealMax, minor, major } = FAULTS.tempo
+  const { idealMin, idealMax, minor, major } = ctx.faults.tempo
   const deviation = ratio < idealMin ? idealMin - ratio : ratio > idealMax ? ratio - idealMax : 0
   const severity = severityFrom(deviation, minor, major)
   const tooFast = ratio < idealMin
@@ -60,7 +60,7 @@ export const finishBalance: Rule = (ctx) => {
   if (skip) return skip
 
   const { impact, finish } = ctx.events
-  const { windowStartSec, windowLengthSec } = FAULTS.finishBalance
+  const { windowStartSec, windowLengthSec } = ctx.faults.finishBalance
   // Fenêtre ancrée sur l'impact : indépendante de la détection d'une phase
   // « finish » stable, qui par définition n'existe pas quand le joueur vacille.
   const start = Math.min(ctx.c.n - 1, impact + Math.round(windowStartSec * ctx.c.fps))
@@ -82,7 +82,7 @@ export const finishBalance: Rule = (ctx) => {
   )
   if (!Number.isFinite(value)) return null
 
-  const { minor, major } = FAULTS.finishBalance
+  const { minor, major } = ctx.faults.finishBalance
   const severity = severityFrom(value, minor, major)
 
   return makeFault({

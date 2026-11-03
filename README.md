@@ -50,6 +50,10 @@ npm run setup:assets -- --models full
   écartement des pieds, sway, reverse pivot, stabilité de tête, early
   extension, glissement du bassin, loss of posture, chicken wing, tempo,
   équilibre au finish.
+- **Club** — driver, bois/hybride, fer ou wedge. Ce n'est pas un détail
+  d'affichage&nbsp;: sept des douze règles ont une zone saine qui dépend du club.
+  Le changer dans le rapport réévalue le swing instantanément, sans retraiter
+  la vidéo.
 - **Lecteur** — vidéo d'origine + overlay squelette, ralenti jusqu'à 0,15×,
   avance image par image, saut direct sur chaque phase, et une annotation
   dédiée par défaut (lignes de référence, flèches de déplacement).
@@ -131,10 +135,13 @@ Avec `npm run setup:assets -- --models full`, les modèles sont inclus dans
 - **Mais le corpus est fait d'images de retransmission**, dont les conditions de
   prise de vue diffèrent d'un téléphone posé au sol. Les valeurs sont des ordres
   de grandeur mesurés, pas une norme.
-- **Deux règles dépendent du club, que l'app ne connaît pas.** L'écartement des
-  pieds va de 1,27× la largeur d'épaules au fer à 1,54× au driver ; l'inclinaison
-  du buste de 34° à 28°. Leurs bandes couvrent donc tous les clubs et ne
-  détectent que les écarts francs. Le tempo, lui, est indépendant du club.
+- **Le club change la norme, et l'app le demande.** Mesuré sur le corpus :
+  l'écartement des pieds va de 1,27× la largeur d'épaules au fer à 1,54× au
+  driver, l'inclinaison du buste de 34° à 28°. Sept règles ont donc une bande
+  par famille de club ; cinq n'en ont pas besoin, la mesure ne montrant pas
+  d'effet (sway, slide, tempo, équilibre au finish, chicken wing). Sans club
+  précisé, une bande commune s'applique, moins fine. Le wedge emprunte la
+  distribution des fers, faute d'échantillon suffisant.
 - **La qualité de pose sur vraies vidéos n'a pas été mesurée ici.** Le moteur
   est validé sur séquences synthétiques et la chaîne navigateur sur une vidéo
   de test, mais aucune vidéo de swing réelle n'était disponible dans

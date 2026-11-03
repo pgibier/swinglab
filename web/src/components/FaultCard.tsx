@@ -1,19 +1,19 @@
 import { useState } from 'react'
 import { CATEGORY_LABELS, SEVERITY_LABELS, confidenceLabel, severityClasses } from '../lib/labels'
 import { ReferenceBand } from './ReferenceBand'
-import type { MetricStats } from '../core/reference'
+import type { ReferenceMatch } from '../core/reference'
 import type { FaultResult } from '../core/types'
 
 interface Props {
   fault: FaultResult
   selected: boolean
   onSelect: () => void
-  /** Statistiques du corpus de référence pour cette métrique, si disponibles. */
-  referenceStats?: MetricStats | null
+  /** Référence pour cette métrique, si le corpus en contient une. */
+  reference?: ReferenceMatch | null
   referenceLabel?: string
 }
 
-export function FaultCard({ fault, selected, onSelect, referenceStats, referenceLabel }: Props) {
+export function FaultCard({ fault, selected, onSelect, reference, referenceLabel }: Props) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -51,9 +51,10 @@ export function FaultCard({ fault, selected, onSelect, referenceStats, reference
 
         <p className="text-[0.84rem] leading-relaxed text-muted">{fault.explanation}</p>
 
-        {referenceStats && referenceLabel && (
+        {reference && referenceLabel && (
           <ReferenceBand
-            stats={referenceStats}
+            stats={reference.stats}
+            scope={reference.scope}
             value={fault.value}
             unit={fault.unit}
             profileLabel={referenceLabel}

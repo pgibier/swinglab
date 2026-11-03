@@ -7,7 +7,7 @@
  * que par les scripts de validation. Dupliquer le moteur en Python serait le
  * meilleur moyen de valider une version et d'en livrer une autre.
  *
- *   npx tsx scripts/analyze.ts --batch dossier -o out.jsonl
+ *   npx tsx scripts/analyze.ts --batch dossier -o out.jsonl [--clubs labels.json]
  *                                                     → tout un corpus en un
  *                                                       seul processus
  *   npx tsx scripts/analyze.ts points.json            → rapport complet (JSON)
@@ -24,7 +24,7 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { analyzeSequence } from '../src/core/report'
-import { SWING_EVENTS, type PoseSequence } from '../src/core/types'
+import { SWING_EVENTS, type ClubKind, type PoseSequence } from '../src/core/types'
 
 const argv = process.argv.slice(2)
 
@@ -55,8 +55,26 @@ if (argv[0] === '--batch') {
   const outIndex = argv.indexOf('-o')
   const outPath = outIndex > 0 ? argv[outIndex + 1] : undefined
   if (!dir || !outPath) {
-    console.error('Usage : npx tsx scripts/analyze.ts --batch <dossier> -o <sortie.jsonl>')
+    console.error('Usage : npx tsx scripts/analyze.ts --batch <dossier> -o <sortie.jsonl> [--clubs labels.json]')
     process.exit(2)
+  }
+
+  // Analyser chaque clip avec SON club : sans cela, la validation d'un calage
+  // par club mesurerait en réalité la bande commune.
+  const clubsIndex = argv.indexOf('--clubs')
+  const clubByClip = new Map<string, ClubKind>()
+  if (clubsIndex > 0 && argv[clubsIndex + 1]) {
+    const golfdbToKind: Record<string, ClubKind> = {
+      driver: 'driver', fairway: 'wood', hybrid: 'wood', iron: 'iron', wedge: 'wedge',
+    }
+    const labels = JSON.parse(readFileSync(argv[clubsIndex + 1], 'utf8')) as {
+      clips: Array<{ id: number | string; club?: string }>
+    }
+    for (const clip of labels.clips) {
+      const kind = golfdbToKind[clip.club ?? '']
+      if (kind) clubByClip.set(String(clip.id), kind)
+    }
+    console.error(`  clubs connus pour ${clubByClip.size} clips`)
   }
 
   const files = readdirSync(dir)
@@ -71,7 +89,8 @@ if (argv[0] === '--batch') {
     const id = file.replace(/\.json$/, '')
     try {
       const sequence = toSequence(JSON.parse(readFileSync(join(dir, file), 'utf8')))
-      const outcome = analyzeSequence(sequence)
+      const club = clubByClip.get(id) ?? 'unknown'
+      const outcome = analyzeSequence(sequence, { club })
       if (!outcome.ok) {
         failed++
         lines.push(JSON.stringify({ id, ok: false, error: outcome.error }))
@@ -92,6 +111,7 @@ if (argv[0] === '--batch') {
         JSON.stringify({
           id,
           ok: true,
+          club,
           view: r.meta.view,
           viewConfidence: r.meta.viewConfidence,
           handedness: r.meta.handedness,
