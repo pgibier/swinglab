@@ -336,20 +336,20 @@ export async function extractPoseSequence(
   const sourceFps = await probeFps(video)
 
   // Recadrage automatique sur le mouvement, sauf fenêtre imposée par l'appelant.
-  let window: SwingWindow = {
+  let swingWindow: SwingWindow = {
     startSec: opts.startSec ?? 0,
     endSec: opts.endSec ?? video.duration ?? 0,
     trimmed: false,
   }
   if (opts.startSec === undefined && opts.endSec === undefined) {
     onProgress?.({ ratio: 0.02, stage: 'scanning', frame: 0, totalFrames: 0 })
-    window = await findSwingWindow(video, (ratio) => {
+    swingWindow = await findSwingWindow(video, (ratio) => {
       onProgress?.({ ratio: 0.02 + ratio * 0.08, stage: 'scanning', frame: 0, totalFrames: 0 })
     })
   }
 
-  const start = Math.max(0, window.startSec)
-  const end = Math.min(video.duration || 0, window.endSec)
+  const start = Math.max(0, swingWindow.startSec)
+  const end = Math.min(video.duration || 0, swingWindow.endSec)
   const span = Math.max(0, end - start)
 
   const lowEnd = opts.lowEnd ?? isLowEndDevice()
@@ -407,14 +407,20 @@ export async function extractPoseSequence(
       frames.push(null)
     }
 
-    if (i % 3 === 0 || i === totalFrames - 1) {
-      onProgress?.({
-        ratio: (i + 1) / totalFrames,
-        stage: 'extracting',
-        frame: i + 1,
-        totalFrames,
-      })
-      await yieldToUI()
+    onProgress?.({
+      ratio: (i + 1) / totalFrames,
+      stage: 'extracting',
+      frame: i + 1,
+      totalFrames,
+    })
+    // Main rendue à CHAQUE image : l'inférence est synchrone et peut durer
+    // plusieurs dizaines de millisecondes, ce qui suffit à faire passer la
+    // page pour bloquée.
+    await yieldToUI()
+    // Et une respiration franche de temps en temps : rendre la main ne suffit
+    // pas à laisser le navigateur récupérer de la mémoire.
+    if (i > 0 && i % EXTRACTION.breatherEveryFrames === 0) {
+      await new Promise<void>((r) => window.setTimeout(r, EXTRACTION.breatherMs))
     }
   }
 
@@ -424,6 +430,6 @@ export async function extractPoseSequence(
     timestamps,
     videoWidth: video.videoWidth,
     videoHeight: video.videoHeight,
-    window,
+    window: swingWindow,
   }
 }

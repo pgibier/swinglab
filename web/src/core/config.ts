@@ -209,6 +209,17 @@ export const EXTRACTION = {
   minWindowSec: 1.5,
   /** Si la fenêtre couvre déjà cette part de la vidéo, le recadrage n'apporte rien. */
   maxWindowFraction: 0.85,
+  /**
+   * Nombre d'images entre deux respirations longues du thread principal.
+   *
+   * Un `setTimeout(0)` rend la main mais ne laisse pas le temps au navigateur
+   * de récupérer de la mémoire. Sur Safari mobile, qui tue l'onglet sous
+   * pression plutôt que de ralentir, une pause franche à intervalle régulier
+   * change la donne.
+   */
+  breatherEveryFrames: 24,
+  /** Durée de cette pause, en millisecondes. */
+  breatherMs: 40,
   /** Seuils de confiance passés à MediaPipe. */
   minPoseDetectionConfidence: 0.5,
   minPosePresenceConfidence: 0.5,

@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { ClubSelector } from './ClubSelector'
 import type { ClubKind } from '../core/types'
 
@@ -7,6 +7,8 @@ interface Props {
   busy: boolean
   club: ClubKind
   onClubChange: (club: ClubKind) => void
+  /** Message éventuel sur une analyse précédente interrompue. */
+  crashNotice?: ReactNode
 }
 
 const TIPS: Array<{ title: string; body: string }> = [
@@ -28,7 +30,7 @@ const TIPS: Array<{ title: string; body: string }> = [
   },
 ]
 
-export function UploadScreen({ onFile, busy, club, onClubChange }: Props) {
+export function UploadScreen({ onFile, busy, club, onClubChange, crashNotice }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
 
   return (
@@ -48,6 +50,8 @@ export function UploadScreen({ onFile, busy, club, onClubChange }: Props) {
           envoyée nulle part et ne quitte jamais l&rsquo;appareil.
         </p>
       </header>
+
+      {crashNotice}
 
       <ClubSelector value={club} onChange={onClubChange} />
 

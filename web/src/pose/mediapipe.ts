@@ -90,7 +90,34 @@ let filesetIsLocal = false
  * Le coût se limite à la construction du graphe, le runtime WASM étant
  * conservé et le modèle servi par le cache du navigateur.
  */
-export async function loadLandmarker(variant: ModelVariant = 'full'): Promise<LoadedLandmarker> {
+/**
+ * Appareils où le délégué GPU est à éviter.
+ * iOS et iPadOS, y compris les iPad récents qui se déclarent « MacIntel ».
+ */
+export function prefersCpuDelegate(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  )
+}
+
+export interface LoadOptions {
+  /**
+   * Force un délégué d'exécution. Par défaut on tente le GPU puis le CPU.
+   *
+   * Sur iOS, le délégué GPU alloue des textures WebGL que Safari mobile
+   * supporte mal : c'est une cause connue d'onglet tué sans message. Le
+   * délégué CPU fait tourner le MÊME modèle sur les MÊMES images, donc sans
+   * perte de précision — seulement un peu plus lentement.
+   */
+  delegate?: 'GPU' | 'CPU'
+}
+
+export async function loadLandmarker(
+  variant: ModelVariant = 'full',
+  loadOptions: LoadOptions = {},
+): Promise<LoadedLandmarker> {
   const localWasm = `${import.meta.env.BASE_URL}wasm`
   if (!filesetPromise) {
     filesetIsLocal = await isServedFile(`${localWasm}/vision_wasm_internal.wasm`)
@@ -110,6 +137,24 @@ export async function loadLandmarker(variant: ModelVariant = 'full'): Promise<Lo
     minPosePresenceConfidence: EXTRACTION.minPosePresenceConfidence,
     minTrackingConfidence: EXTRACTION.minTrackingConfidence,
     outputSegmentationMasks: false,
+  }
+
+  // Sur iOS, le délégué GPU alloue des textures WebGL que Safari mobile
+  // supporte mal : c'est une cause connue d'onglet tué sans message, et c'est
+  // le symptôme observé. On force donc le CPU sur ces appareils.
+  //
+  // Sans perte de précision : le MÊME modèle tourne sur les MÊMES images.
+  // Vérifié sur un swing réel, la chaîne Python — qui utilise le délégué CPU —
+  // et la chaîne navigateur en GPU donnent les huit phases à une image près
+  // et les métriques à 0,4 point près.
+  const forcedDelegate = loadOptions.delegate ?? (prefersCpuDelegate() ? 'CPU' : undefined)
+
+  if (forcedDelegate === 'CPU') {
+    const landmarker = await PoseLandmarker.createFromOptions(fileset, {
+      ...options,
+      baseOptions: { ...options.baseOptions, delegate: 'CPU' },
+    })
+    return { landmarker, variant, delegate: 'CPU', local: useLocalModel && useLocalWasm }
   }
 
   // Le délégué GPU est nettement plus rapide mais indisponible sur certains

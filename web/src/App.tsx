@@ -17,6 +17,8 @@ import {
 import { analyzeSequence } from './core'
 import { loadReferenceProfile } from './lib/loadReference'
 import { loadClub, saveClub } from './lib/clubs'
+import { clearMark, mark, takePendingCrash, type ProgressMark } from './lib/crashLog'
+import { CrashNotice } from './components/CrashNotice'
 import type { ReferenceProfile } from './core/reference'
 import type { ClubKind, FaultResult, PoseSequence, SwingReport } from './core/types'
 
@@ -40,6 +42,8 @@ export default function App() {
   const [currentFrame, setCurrentFrame] = useState(0)
   const [reference, setReference] = useState<ReferenceProfile | null>(null)
   const [club, setClub] = useState<ClubKind>(() => loadClub())
+  // Lue une fois au démarrage : trace éventuelle d'un passage tué par le système.
+  const [pendingCrash] = useState<ProgressMark | null>(() => takePendingCrash())
 
   // Le corpus de comparaison est facultatif : s'il n'est pas publié avec le
   // site, l'app n'affiche simplement aucune comparaison.
@@ -109,10 +113,12 @@ export default function App() {
     setSeekRequest(null)
 
     try {
+      mark('chargement de la vidéo', `${Math.round(file.size / 1e6)} Mo`)
       setStage({ k: 'working', label: 'Chargement de la vidéo…', ratio: 0.02 })
       const { video, url } = await loadVideo(file)
       urlRef.current = url
 
+      mark('préparation du modèle', `${video.videoWidth}×${video.videoHeight}`)
       setStage({
         k: 'working',
         label: 'Préparation du modèle de pose…',
@@ -131,7 +137,9 @@ export default function App() {
         ratio: 0.12,
       })
 
-      const onExtractProgress = (p: ExtractionProgress) =>
+      const onExtractProgress = (p: ExtractionProgress) => {
+        mark(p.stage === 'extracting' ? 'détection de pose' : 'repérage du swing',
+          p.totalFrames ? `image ${p.frame}/${p.totalFrames}` : '')
         setStage({
           k: 'working',
           label: 'Détection des points du corps…',
@@ -144,6 +152,7 @@ export default function App() {
           // 12 % de budget pour le chargement, 85 % pour l'extraction.
           ratio: 0.12 + p.ratio * 0.85,
         })
+      }
 
       /**
        * Mode économe d'emblée sur un appareil contraint, et en second essai
@@ -176,6 +185,7 @@ export default function App() {
         })
       }
 
+      mark('analyse du swing', `${sequence.frames.length} images`)
       setStage({ k: 'working', label: 'Analyse du swing…', ratio: 0.98 })
       let outcome = analyzeSequence(sequence, { club: clubRef.current })
 
@@ -229,6 +239,7 @@ export default function App() {
       // lecteur du rapport en ouvre un second, et deux décodeurs vivants pour
       // la même vidéo pèsent lourd.
       releaseVideo(video)
+      clearMark()
 
       setCurrentFrame(outcome.report.events.address)
       setStage({
@@ -241,6 +252,7 @@ export default function App() {
         },
       })
     } catch (err) {
+      clearMark()
       if (err instanceof DOMException && err.name === 'AbortError') return
       if (err instanceof ModelLoadError) {
         setStage({
@@ -356,6 +368,7 @@ export default function App() {
     <UploadScreen
       onFile={handleFile}
       busy={false}
+      crashNotice={pendingCrash ? <CrashNotice mark={pendingCrash} /> : null}
       club={club}
       onClubChange={(next) => {
         setClub(next)
