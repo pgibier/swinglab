@@ -35,6 +35,12 @@ export interface PoseSequence {
   timestamps: number[]
   videoWidth: number
   videoHeight: number
+  /**
+   * Fenêtre de la vidéo réellement analysée. `trimmed` indique qu'un
+   * recadrage automatique a eu lieu : utile pour détecter qu'un swing touche
+   * le bord de la fenêtre, et donc qu'elle était trop serrée.
+   */
+  window?: { startSec: number; endSec: number; trimmed: boolean }
 }
 
 export type ViewType = 'face_on' | 'down_the_line' | 'unknown'

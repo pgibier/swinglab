@@ -90,6 +90,30 @@ naïf `response.ok` conclut donc que le modèle est présent, et MediaPipe reço
 du HTML — avec pour seul symptôme un « Unable to open zip archive » illisible.
 Le chargeur vérifie le `content-type` et la taille.
 
+**Le recadrage automatique sur le swing.** Une vidéo de téléphone dure
+volontiers neuf secondes pour un swing qui en occupe trois : le joueur se
+place, joue, puis range. Un pré-passage très bon marché — différence d'images
+sur une vignette de 64 pixels de haut — localise le mouvement, et l'inférence
+de pose ne tourne que sur cette fenêtre. Mesuré sur une vidéo réelle : 197
+images analysées au lieu de 535, pour un résultat identique à l'image près.
+
+Le seuil ne porte pas sur une fraction du pic mais sur l'écart à la ligne de
+base, et l'expansion part du pic au lieu de balayer la vidéo. Les deux
+corrections viennent de la même mesure : dans un practice, le bruit de fond
+atteint 25 % du pic du swing, et le joueur bouge aussi en entrant dans le
+champ. Un filet de sécurité complète le dispositif — si le swing détecté
+touche un bord de la fenêtre, l'extraction est refaite sur la vidéo entière
+plutôt que de rendre une analyse amputée.
+
+**Un détecteur de pose neuf à chaque analyse.** En mode VIDEO, MediaPipe
+refuse tout horodatage inférieur au précédent sur toute la durée de vie du
+détecteur. Le réutiliser d'une vidéo à l'autre, dont les horodatages repartent
+de zéro, cassait la seconde analyse — bug invisible pour un test qui ne charge
+qu'une vidéo. Et au-delà de l'horodatage, ce mode entretient un suivi temporel
+dont la conservation ferait fuiter la pose du joueur précédent dans les
+premières images de la suivante. Seul le runtime WASM, coûteux et indépendant
+de la vidéo, est conservé.
+
 **La dérive de caméra.** Les pieds d'un joueur ne bougent pas avant l'impact.
 Tout déplacement apparent des chevilles vient donc de la caméra — téléphone
 tenu à la main, panoramique, zoom — et contamine toutes les mesures de

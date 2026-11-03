@@ -152,6 +152,41 @@ export const EXTRACTION = {
   fpsProbeFrames: 14,
   /** Délai max (ms) d'attente d'un seek avant abandon de la frame. */
   seekTimeoutMs: 2500,
+  // --- Recadrage automatique sur le swing ---
+  //
+  // Une vidéo de téléphone dure volontiers 9 secondes pour un swing qui en
+  // occupe 3 : le joueur se place, joue, puis range. Analyser l'intégralité
+  // triple le temps de traitement pour rien. Un pré-passage très bon marché
+  // (différence d'images sur une vignette) localise le mouvement, et
+  // l'inférence de pose ne tourne que sur cette fenêtre.
+  /** Pas d'échantillonnage du pré-passage de mouvement, en secondes. */
+  motionSampleStepSec: 0.12,
+  /** Hauteur de la vignette utilisée pour mesurer le mouvement, en pixels. */
+  motionThumbHeight: 64,
+  /**
+   * Seuil de mouvement, exprimé en fraction de l'écart entre la ligne de base
+   * et le pic — et non du pic lui-même.
+   *
+   * Mesuré sur une vidéo de practice : le bruit de fond (éclairages, autres
+   * joueurs, bruit du capteur) atteint 25 % du pic du swing. Un seuil en
+   * fraction du pic n'isole donc rien. En retranchant la ligne de base, le
+   * swing ressort nettement, et le réglage est stable de 0,20 à 0,40.
+   */
+  motionThreshold: 0.25,
+  /**
+   * Nombre d'échantillons sous le seuil tolérés pendant l'expansion autour du
+   * pic. Un swing comporte un temps d'arrêt au sommet, qui ne doit pas couper
+   * la fenêtre en deux.
+   */
+  motionGapSamples: 2,
+  /** Marge conservée avant le mouvement détecté (adresse), en secondes. */
+  motionPadBeforeSec: 1.2,
+  /** Marge conservée après (finish tenu), en secondes. */
+  motionPadAfterSec: 1.4,
+  /** En deçà de cette durée, on n'ose pas recadrer. */
+  minWindowSec: 1.5,
+  /** Si la fenêtre couvre déjà cette part de la vidéo, le recadrage n'apporte rien. */
+  maxWindowFraction: 0.85,
   /** Seuils de confiance passés à MediaPipe. */
   minPoseDetectionConfidence: 0.5,
   minPosePresenceConfidence: 0.5,

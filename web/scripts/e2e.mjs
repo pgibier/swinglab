@@ -176,7 +176,30 @@ if (outcome === 'error') {
 
 await page.screenshot({ path: 'scripts/.e2e-last.png', fullPage: true })
 
-console.log('\n[4] Console navigateur')
+console.log('\n[4] Deuxième vidéo dans la même session')
+// Régression : MediaPipe refuse en mode VIDEO tout horodatage inférieur au
+// précédent sur la durée de vie du détecteur. Réutiliser l'instance d'une
+// vidéo à l'autre cassait silencieusement la seconde analyse — invisible
+// pour un test qui n'en charge qu'une.
+const errorsBeforeSecond = consoleErrors.length
+await page.click('text=Réessayer').catch(() => page.click('text=Nouvelle vidéo'))
+// L'input est volontairement masqué (le bouton le déclenche) : on attend
+// qu'il soit présent dans le DOM, pas visible.
+await page.waitForSelector('input[type=file]', { state: 'attached', timeout: 15_000 })
+await page.setInputFiles('input[type=file]', videoPath)
+await page.waitForSelector('text=Détection des points du corps', { timeout: 60_000 })
+const secondOutcome = await Promise.race([
+  page.waitForSelector('text=À travailler en priorité', { timeout: 300_000 }).then(() => 'report'),
+  page.waitForSelector('text=Réessayer', { timeout: 300_000 }).then(() => 'error'),
+]).catch(() => 'timeout')
+check('la deuxième analyse aboutit comme la première', secondOutcome === outcome,
+  `${secondOutcome} vs ${outcome}`)
+const newErrors = consoleErrors.slice(errorsBeforeSecond)
+check('aucune erreur MediaPipe au second passage',
+  !newErrors.some((e) => /timestamp|INVALID_ARGUMENT|Graph has errors/i.test(e)),
+  newErrors.slice(0, 2).join(' | '))
+
+console.log('\n[5] Console navigateur')
 const realErrors = consoleErrors.filter(
   (e) => !/favicon|Failed to load resource.*favicon/i.test(e),
 )

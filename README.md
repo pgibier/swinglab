@@ -142,10 +142,12 @@ Avec `npm run setup:assets -- --models full`, les modèles sont inclus dans
   d'effet (sway, slide, tempo, équilibre au finish, chicken wing). Sans club
   précisé, une bande commune s'applique, moins fine. Le wedge emprunte la
   distribution des fers, faute d'échantillon suffisant.
-- **La qualité de pose sur vraies vidéos n'a pas été mesurée ici.** Le moteur
-  est validé sur séquences synthétiques et la chaîne navigateur sur une vidéo
-  de test, mais aucune vidéo de swing réelle n'était disponible dans
-  l'environnement de développement. C'est la première chose à vérifier.
+- **Validé sur une vraie vidéo de téléphone.** iPhone, 1080×1920, 60 i/s,
+  practice couvert, vue de derrière : pose détectée sur **100 % des images**,
+  les huit phases vérifiées image par image correspondent au geste, et la
+  rotation EXIF est correctement appliquée. Un seul échantillon, donc une
+  validation et non une garantie — mais la chaîne complète fonctionne de bout
+  en bout sur du matériel réel.
 - **Mesures 2D monoculaires.** Ordres de grandeur fiables, pas des valeurs de
   laboratoire. La profondeur estimée par MediaPipe n'est volontairement pas
   utilisée pour le diagnostic.

@@ -67,10 +67,37 @@ export interface LoadedLandmarker {
  * Crée un détecteur en mode VIDEO (suivi temporel activé : MediaPipe réutilise
  * la détection de la frame précédente, ce qui stabilise les points clés).
  */
+/**
+ * Le runtime WASM est coûteux à initialiser et ne dépend pas de la vidéo :
+ * on le garde. Le détecteur, lui, est recréé à chaque analyse (voir plus bas).
+ */
+let filesetPromise: Promise<Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>> | null = null
+let filesetIsLocal = false
+
+/**
+ * Crée un détecteur NEUF à chaque analyse.
+ *
+ * Deux raisons, la première rencontrée en test : en mode VIDEO, MediaPipe
+ * exige des horodatages strictement croissants sur toute la durée de vie du
+ * détecteur. Réutiliser la même instance pour une deuxième vidéo, dont les
+ * horodatages repartent de zéro, fait échouer l'analyse — autrement dit,
+ * analyser deux swings de suite était cassé.
+ *
+ * La seconde est plus insidieuse : ce mode entretient un suivi temporel.
+ * Conserver ce suivi d'une vidéo à l'autre ferait fuiter la pose du joueur
+ * précédent dans les premières images de la suivante.
+ *
+ * Le coût se limite à la construction du graphe, le runtime WASM étant
+ * conservé et le modèle servi par le cache du navigateur.
+ */
 export async function loadLandmarker(variant: ModelVariant = 'full'): Promise<LoadedLandmarker> {
   const localWasm = `${import.meta.env.BASE_URL}wasm`
-  const useLocalWasm = await isServedFile(`${localWasm}/vision_wasm_internal.wasm`)
-  const fileset = await FilesetResolver.forVisionTasks(useLocalWasm ? localWasm : CDN_WASM)
+  if (!filesetPromise) {
+    filesetIsLocal = await isServedFile(`${localWasm}/vision_wasm_internal.wasm`)
+    filesetPromise = FilesetResolver.forVisionTasks(filesetIsLocal ? localWasm : CDN_WASM)
+  }
+  const fileset = await filesetPromise
+  const useLocalWasm = filesetIsLocal
 
   const useLocalModel = await isServedFile(localModelUrl(variant), MIN_MODEL_BYTES)
   const assetPath = useLocalModel ? localModelUrl(variant) : modelUrl(variant)

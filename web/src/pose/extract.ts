@@ -28,7 +28,7 @@ const rvfc = (v: HTMLVideoElement): RVFC | null => {
 export interface ExtractionProgress {
   /** Avancement [0..1]. */
   ratio: number
-  stage: 'probing' | 'extracting'
+  stage: 'probing' | 'scanning' | 'extracting'
   frame: number
   totalFrames: number
 }
@@ -145,6 +145,125 @@ export async function probeFps(video: HTMLVideoElement): Promise<number> {
   return snapFps(fps)
 }
 
+export interface SwingWindow {
+  startSec: number
+  endSec: number
+  /** false quand le mouvement n'a pas pu être localisé : on analyse tout. */
+  trimmed: boolean
+}
+
+/**
+ * Localise la fenêtre de mouvement par différence d'images sur une vignette.
+ *
+ * Pourquoi un pré-passage : l'inférence de pose coûte plusieurs dizaines de
+ * millisecondes par image, une différence de vignette quelques dizaines de
+ * microsecondes. Sur une vidéo de 9 secondes dont 3 contiennent le swing,
+ * localiser d'abord puis n'inférer que là divise le travail par trois.
+ *
+ * La marge conservée de part et d'autre est généreuse : l'adresse et le
+ * finish tenu font partie du diagnostic, et les rogner coûterait plus cher
+ * que les quelques images gagnées.
+ */
+export async function findSwingWindow(
+  video: HTMLVideoElement,
+  onProgress?: (ratio: number) => void,
+): Promise<SwingWindow> {
+  const duration = video.duration || 0
+  const whole: SwingWindow = { startSec: 0, endSec: duration, trimmed: false }
+  if (!Number.isFinite(duration) || duration < EXTRACTION.minWindowSec * 2) return whole
+
+  const height = EXTRACTION.motionThumbHeight
+  const width = Math.max(
+    1,
+    Math.round((video.videoWidth / Math.max(1, video.videoHeight)) * height),
+  )
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return whole
+
+  const step = EXTRACTION.motionSampleStepSec
+  const times: number[] = []
+  for (let t = 0; t < duration; t += step) times.push(t)
+  if (times.length < 6) return whole
+
+  const energy: number[] = []
+  let previous: Uint8ClampedArray | null = null
+  for (let i = 0; i < times.length; i++) {
+    try {
+      await seekTo(video, Math.min(duration - 1e-3, times[i]))
+    } catch {
+      return whole
+    }
+    ctx.drawImage(video, 0, 0, width, height)
+    const frame = ctx.getImageData(0, 0, width, height).data
+    if (previous) {
+      let sum = 0
+      // Luminance approchée, un pixel sur deux : on cherche un ordre de
+      // grandeur de mouvement, pas une mesure fine.
+      for (let k = 0; k < frame.length; k += 8) {
+        sum += Math.abs(frame[k] - previous[k]) + Math.abs(frame[k + 1] - previous[k + 1])
+      }
+      energy.push(sum / (frame.length / 8))
+    } else {
+      energy.push(0)
+    }
+    previous = frame
+    if (i % 8 === 0) {
+      onProgress?.(i / times.length)
+      await new Promise<void>((r) => window.setTimeout(r, 0))
+    }
+  }
+
+  // Ligne de base robuste : la médiane ignore le swing lui-même, qui ne
+  // représente qu'une poignée d'échantillons.
+  const sorted = [...energy].sort((a, b) => a - b)
+  const baseline = sorted[sorted.length >> 1]
+  let peakIndex = 0
+  for (let i = 1; i < energy.length; i++) if (energy[i] > energy[peakIndex]) peakIndex = i
+  const peak = energy[peakIndex]
+  if (!Number.isFinite(peak) || peak - baseline <= 1e-6) return whole
+  const threshold = baseline + (peak - baseline) * EXTRACTION.motionThreshold
+
+  // Expansion de part et d'autre du PIC, et non balayage de toute la vidéo :
+  // le joueur entre dans le champ, se place, puis range son club, et ces
+  // mouvements-là ne doivent pas élargir la fenêtre.
+  const expand = (direction: 1 | -1): number => {
+    let edge = peakIndex
+    let misses = 0
+    for (let i = peakIndex + direction; i >= 0 && i < energy.length; i += direction) {
+      if (energy[i] >= threshold) {
+        edge = i
+        misses = 0
+      } else if (++misses > EXTRACTION.motionGapSamples) {
+        break
+      }
+    }
+    return edge
+  }
+  const first = expand(-1)
+  const last = expand(1)
+
+  const startSec = Math.max(0, times[first] - EXTRACTION.motionPadBeforeSec)
+  const endSec = Math.min(duration, times[last] + EXTRACTION.motionPadAfterSec)
+  const span = endSec - startSec
+  if (span < EXTRACTION.minWindowSec) return whole
+  if (span > duration * EXTRACTION.maxWindowFraction) return whole
+  return { startSec, endSec, trimmed: true }
+}
+
+/**
+ * Horodatages remis à un curseur global croissant.
+ *
+ * MediaPipe en mode VIDEO refuse tout horodatage inférieur au précédent, sur
+ * toute la durée de vie du détecteur. Dériver l'horodatage du temps vidéo
+ * casse donc dès qu'on analyse une deuxième vidéo, ou qu'on refait un passage
+ * sur la même. Les ÉCARTS entre images sont préservés — c'est ce qui compte
+ * pour le suivi temporel —, seule l'origine est décalée.
+ */
+let timestampCursor = 0
+
 /** Laisse respirer le thread principal pour que la barre de progression avance. */
 const yieldToUI = () => new Promise<void>((r) => window.setTimeout(r, 0))
 
@@ -183,8 +302,22 @@ export async function extractPoseSequence(
   onProgress?.({ ratio: 0, stage: 'probing', frame: 0, totalFrames: 0 })
 
   const sourceFps = await probeFps(video)
-  const start = Math.max(0, opts.startSec ?? 0)
-  const end = Math.min(video.duration || 0, opts.endSec ?? video.duration ?? 0)
+
+  // Recadrage automatique sur le mouvement, sauf fenêtre imposée par l'appelant.
+  let window: SwingWindow = {
+    startSec: opts.startSec ?? 0,
+    endSec: opts.endSec ?? video.duration ?? 0,
+    trimmed: false,
+  }
+  if (opts.startSec === undefined && opts.endSec === undefined) {
+    onProgress?.({ ratio: 0.02, stage: 'scanning', frame: 0, totalFrames: 0 })
+    window = await findSwingWindow(video, (ratio) => {
+      onProgress?.({ ratio: 0.02 + ratio * 0.08, stage: 'scanning', frame: 0, totalFrames: 0 })
+    })
+  }
+
+  const start = Math.max(0, window.startSec)
+  const end = Math.min(video.duration || 0, window.endSec)
   const span = Math.max(0, end - start)
 
   const rawFrames = Math.max(1, Math.floor(span * sourceFps))
@@ -194,7 +327,9 @@ export async function extractPoseSequence(
 
   const frames: PoseFrame[] = []
   const timestamps: number[] = []
-  let lastTimestampMs = -1
+  // Un écart franc signale une discontinuité au suivi temporel.
+  const timestampBase = timestampCursor + 1000
+  let lastTimestampMs = timestampBase - 1
 
   for (let i = 0; i < totalFrames; i++) {
     if (signal?.aborted) throw new DOMException('Analyse annulée', 'AbortError')
@@ -211,8 +346,9 @@ export async function extractPoseSequence(
     }
 
     // MediaPipe exige des timestamps strictement croissants en mode VIDEO.
-    const timestampMs = Math.max(lastTimestampMs + 1, Math.round(t * 1000))
+    const timestampMs = Math.max(lastTimestampMs + 1, timestampBase + Math.round((t - start) * 1000))
     lastTimestampMs = timestampMs
+    timestampCursor = timestampMs
 
     try {
       const result = landmarker.detectForVideo(video, timestampMs)
@@ -238,5 +374,6 @@ export async function extractPoseSequence(
     timestamps,
     videoWidth: video.videoWidth,
     videoHeight: video.videoHeight,
+    window,
   }
 }

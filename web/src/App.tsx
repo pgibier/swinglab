@@ -47,7 +47,8 @@ export default function App() {
     }
   }, [])
 
-  // Le détecteur est coûteux à créer : on le garde pour les analyses suivantes.
+  // Un détecteur neuf par analyse : voir loadLandmarker. Celui en cours est
+  // conservé le temps d'une éventuelle reprise, puis libéré.
   const landmarkerRef = useRef<LoadedLandmarker | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const urlRef = useRef<string | null>(null)
@@ -106,16 +107,16 @@ export default function App() {
       const { video, url } = await loadVideo(file)
       urlRef.current = url
 
-      if (!landmarkerRef.current) {
-        setStage({
-          k: 'working',
-          label: 'Téléchargement du modèle de pose…',
-          detail: 'Une seule fois, puis il reste en cache.',
-          ratio: 0.08,
-        })
-        landmarkerRef.current = await loadLandmarker('full')
-      }
-      const loaded = landmarkerRef.current
+      setStage({
+        k: 'working',
+        label: 'Préparation du modèle de pose…',
+        detail: 'Le modèle est téléchargé une seule fois, puis mis en cache.',
+        ratio: 0.08,
+      })
+      landmarkerRef.current?.landmarker.close()
+      landmarkerRef.current = null
+      const loaded = await loadLandmarker('full')
+      landmarkerRef.current = loaded
 
       setStage({
         k: 'working',
@@ -124,7 +125,7 @@ export default function App() {
         ratio: 0.12,
       })
 
-      const sequence = await extractPoseSequence(video, loaded.landmarker, {
+      let sequence = await extractPoseSequence(video, loaded.landmarker, {
         signal: controller.signal,
         onProgress: (p) => {
           setStage({
@@ -133,7 +134,9 @@ export default function App() {
             detail:
               p.stage === 'probing'
                 ? 'Mesure de la cadence vidéo…'
-                : `Image ${p.frame} / ${p.totalFrames}`,
+                : p.stage === 'scanning'
+                  ? 'Repérage du swing dans la vidéo…'
+                  : `Image ${p.frame} / ${p.totalFrames}`,
             // 12 % de budget pour le chargement, 85 % pour l'extraction.
             ratio: 0.12 + p.ratio * 0.85,
           })
@@ -141,7 +144,48 @@ export default function App() {
       })
 
       setStage({ k: 'working', label: 'Analyse du swing…', ratio: 0.98 })
-      const outcome = analyzeSequence(sequence, { club: clubRef.current })
+      let outcome = analyzeSequence(sequence, { club: clubRef.current })
+
+      /**
+       * Filet de sécurité du recadrage automatique : si le swing détecté
+       * touche un bord de la fenêtre, c'est qu'elle était trop serrée et
+       * qu'une partie du geste manque. On refait alors l'extraction sur la
+       * vidéo entière plutôt que de rendre une analyse amputée.
+       *
+       * Le cas est rare — les marges sont généreuses — et ce second passage
+       * ne coûte que dans ce cas précis.
+       */
+      const touchesEdge =
+        outcome.ok &&
+        sequence.window?.trimmed === true &&
+        (outcome.report.events.address <= 2 ||
+          outcome.report.events.finish >= sequence.frames.length - 3)
+      if (touchesEdge || (!outcome.ok && sequence.window?.trimmed)) {
+        setStage({
+          k: 'working',
+          label: 'Reprise sur la vidéo entière…',
+          detail: 'Le swing débordait de la fenêtre repérée.',
+          ratio: 0.5,
+        })
+        const full = await extractPoseSequence(video, loaded.landmarker, {
+          signal: controller.signal,
+          startSec: 0,
+          endSec: video.duration,
+          onProgress: (p) =>
+            setStage({
+              k: 'working',
+              label: 'Reprise sur la vidéo entière…',
+              detail: `Image ${p.frame} / ${p.totalFrames}`,
+              ratio: 0.5 + p.ratio * 0.48,
+            }),
+        })
+        const retry = analyzeSequence(full, { club: clubRef.current })
+        if (retry.ok) {
+          sequence = full
+          outcome = retry
+        }
+      }
+
       if (!outcome.ok) {
         setStage({ k: 'error', message: outcome.error, hint: outcome.hint })
         return
