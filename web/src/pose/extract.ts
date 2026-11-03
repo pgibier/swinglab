@@ -41,8 +41,8 @@ export async function loadVideo(file: File | Blob): Promise<{ video: HTMLVideoEl
   video.muted = true
   video.playsInline = true
   video.preload = 'auto'
-  // Nécessaire pour lire les pixels d'un blob local sans souiller le canvas.
-  video.crossOrigin = 'anonymous'
+  // Pas de crossOrigin : une URL blob: est de même origine par construction,
+  // et l'attribut fait échouer le chargement sur certaines versions de Safari.
 
   await new Promise<void>((resolve, reject) => {
     const onReady = () => {
@@ -277,8 +277,40 @@ function toFrame(landmarks: Array<{ x: number; y: number; z: number; visibility?
   }))
 }
 
+/**
+ * Libère le décodeur vidéo.
+ *
+ * Sur mobile, le nombre de vidéos décodables simultanément est très limité,
+ * et l'élément d'extraction reste sinon vivant en même temps que celui du
+ * lecteur. Ne pas le relâcher consomme un décodeur et sa mémoire pour rien.
+ */
+export function releaseVideo(video: HTMLVideoElement): void {
+  try {
+    video.pause()
+    video.removeAttribute('src')
+    video.load()
+  } catch {
+    // Rien à faire : l'élément est de toute façon abandonné.
+  }
+}
+
+/** Appareil à faibles ressources : on y réduit la charge plutôt que de planter. */
+export function isLowEndDevice(): boolean {
+  const nav = navigator as Navigator & { deviceMemory?: number }
+  const memory = nav.deviceMemory
+  const cores = navigator.hardwareConcurrency
+  if (typeof memory === 'number' && memory <= 4) return true
+  if (typeof cores === 'number' && cores <= 4) return true
+  // Safari n'expose ni l'un ni l'autre : on considère iOS comme contraint,
+  // car c'est précisément là que l'onglet est tué sans message.
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+}
+
 export interface ExtractOptions {
   onProgress?: (p: ExtractionProgress) => void
+  /** Force le mode économe : moins d'images analysées, pour tenir en mémoire. */
+  lowEnd?: boolean
   /** Instant de début de l'analyse, en secondes. */
   startSec?: number
   /** Instant de fin de l'analyse, en secondes. */
@@ -320,10 +352,27 @@ export async function extractPoseSequence(
   const end = Math.min(video.duration || 0, window.endSec)
   const span = Math.max(0, end - start)
 
+  const lowEnd = opts.lowEnd ?? isLowEndDevice()
+  const maxFrames = lowEnd ? EXTRACTION.maxAnalysisFramesLowEnd : EXTRACTION.maxAnalysisFrames
   const rawFrames = Math.max(1, Math.floor(span * sourceFps))
-  const stride = Math.max(1, Math.ceil(rawFrames / EXTRACTION.maxAnalysisFrames))
+  const stride = Math.max(1, Math.ceil(rawFrames / maxFrames))
   const effectiveFps = sourceFps / stride
   const totalFrames = Math.max(1, Math.floor(rawFrames / stride))
+
+  // Image réduite envoyée à l'inférence : voir EXTRACTION.inferenceMaxHeight.
+  // La hauteur est la MÊME sur tout appareil — seul le nombre d'images varie
+  // en mode économe — pour que la précision de mesure ne dépende pas du
+  // téléphone.
+  const scale = Math.min(1, EXTRACTION.inferenceMaxHeight / Math.max(1, video.videoHeight))
+  const inferWidth = Math.max(1, Math.round(video.videoWidth * scale))
+  const inferHeight = Math.max(1, Math.round(video.videoHeight * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = inferWidth
+  canvas.height = inferHeight
+  const canvasCtx = canvas.getContext('2d')
+  // Les points clés sont normalisés : les réduire ne change pas leurs
+  // coordonnées, seulement la finesse de la détection.
+  const source: HTMLVideoElement | HTMLCanvasElement = canvasCtx ? canvas : video
 
   const frames: PoseFrame[] = []
   const timestamps: number[] = []
@@ -351,7 +400,8 @@ export async function extractPoseSequence(
     timestampCursor = timestampMs
 
     try {
-      const result = landmarker.detectForVideo(video, timestampMs)
+      if (canvasCtx) canvasCtx.drawImage(video, 0, 0, inferWidth, inferHeight)
+      const result = landmarker.detectForVideo(source, timestampMs)
       frames.push(toFrame(result.landmarks?.[0]))
     } catch {
       frames.push(null)

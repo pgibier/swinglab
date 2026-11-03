@@ -7,7 +7,13 @@ import { PhaseStrip } from './components/PhaseStrip'
 import { SwingPlayer, type SeekRequest } from './components/SwingPlayer'
 import { ReportView } from './components/ReportView'
 import { ModelLoadError, loadLandmarker, type LoadedLandmarker } from './pose/mediapipe'
-import { extractPoseSequence, loadVideo } from './pose/extract'
+import {
+  extractPoseSequence,
+  isLowEndDevice,
+  loadVideo,
+  releaseVideo,
+  type ExtractionProgress,
+} from './pose/extract'
 import { analyzeSequence } from './core'
 import { loadReferenceProfile } from './lib/loadReference'
 import { loadClub, saveClub } from './lib/clubs'
@@ -125,23 +131,50 @@ export default function App() {
         ratio: 0.12,
       })
 
-      let sequence = await extractPoseSequence(video, loaded.landmarker, {
-        signal: controller.signal,
-        onProgress: (p) => {
-          setStage({
-            k: 'working',
-            label: 'Détection des points du corps…',
-            detail:
-              p.stage === 'probing'
-                ? 'Mesure de la cadence vidéo…'
-                : p.stage === 'scanning'
-                  ? 'Repérage du swing dans la vidéo…'
-                  : `Image ${p.frame} / ${p.totalFrames}`,
-            // 12 % de budget pour le chargement, 85 % pour l'extraction.
-            ratio: 0.12 + p.ratio * 0.85,
-          })
-        },
-      })
+      const onExtractProgress = (p: ExtractionProgress) =>
+        setStage({
+          k: 'working',
+          label: 'Détection des points du corps…',
+          detail:
+            p.stage === 'probing'
+              ? 'Mesure de la cadence vidéo…'
+              : p.stage === 'scanning'
+                ? 'Repérage du swing dans la vidéo…'
+                : `Image ${p.frame} / ${p.totalFrames}`,
+          // 12 % de budget pour le chargement, 85 % pour l'extraction.
+          ratio: 0.12 + p.ratio * 0.85,
+        })
+
+      /**
+       * Mode économe d'emblée sur un appareil contraint, et en second essai
+       * si le premier échoue. Safari mobile tue l'onglet sans message quand
+       * la mémoire manque : mieux vaut analyser moins d'images que de ne rien
+       * rendre du tout.
+       */
+      let lowEnd = isLowEndDevice()
+      let sequence: PoseSequence
+      try {
+        sequence = await extractPoseSequence(video, loaded.landmarker, {
+          signal: controller.signal,
+          lowEnd,
+          onProgress: onExtractProgress,
+        })
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') throw err
+        if (lowEnd) throw err
+        lowEnd = true
+        setStage({
+          k: 'working',
+          label: 'Nouvel essai en mode économe…',
+          detail: 'La première passe a échoué, probablement faute de mémoire.',
+          ratio: 0.12,
+        })
+        sequence = await extractPoseSequence(video, loaded.landmarker, {
+          signal: controller.signal,
+          lowEnd: true,
+          onProgress: onExtractProgress,
+        })
+      }
 
       setStage({ k: 'working', label: 'Analyse du swing…', ratio: 0.98 })
       let outcome = analyzeSequence(sequence, { club: clubRef.current })
@@ -169,6 +202,7 @@ export default function App() {
         })
         const full = await extractPoseSequence(video, loaded.landmarker, {
           signal: controller.signal,
+          lowEnd,
           startSec: 0,
           endSec: video.duration,
           onProgress: (p) =>
@@ -190,6 +224,11 @@ export default function App() {
         setStage({ k: 'error', message: outcome.error, hint: outcome.hint })
         return
       }
+
+      // Le décodeur de l'élément d'extraction est libéré : sur mobile, le
+      // lecteur du rapport en ouvre un second, et deux décodeurs vivants pour
+      // la même vidéo pèsent lourd.
+      releaseVideo(video)
 
       setCurrentFrame(outcome.report.events.address)
       setStage({
@@ -252,8 +291,8 @@ export default function App() {
   if (stage.k === 'done') {
     const { data } = stage
     return (
-      <div className="mx-auto flex w-full max-w-lg flex-col gap-5 px-4 pb-16 pt-5">
-        <div className="flex items-center justify-between">
+      <div className="mx-auto w-full max-w-lg px-4 pb-16 pt-3 lg:max-w-6xl">
+        <div className="mb-3 flex items-center justify-between">
           <span className="text-sm font-semibold tracking-[0.18em] text-muted uppercase">SwingLab</span>
           <button
             type="button"
@@ -264,40 +303,51 @@ export default function App() {
           </button>
         </div>
 
-        <ScoreHeader report={data.report} modelInfo={data.modelInfo} />
+        {/*
+          La vidéo reste visible pendant qu'on lit l'analyse : collée en haut
+          sur téléphone, en colonne à côté sur grand écran. Sans cela, il faut
+          faire défiler entre le défaut décrit et le geste qui l'illustre.
+        */}
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
+          <div className="sticky top-0 z-20 flex w-full min-w-0 flex-col gap-2 bg-ink pb-3 pt-1 lg:top-4 lg:w-[44%] lg:shrink-0 lg:self-start">
+            <SwingPlayer
+              url={data.url}
+              sequence={data.sequence}
+              report={data.report}
+              selectedFault={selectedFault}
+              seekRequest={seekRequest}
+              onFrameChange={setCurrentFrame}
+              maxHeight="34vh"
+            />
+            <PhaseStrip report={data.report} currentFrame={currentFrame} onSeek={seekTo} />
+          </div>
 
-        <div className="rounded-2xl border border-line bg-surface p-3.5">
-          <p className="mb-2 text-xs font-semibold tracking-[0.14em] text-muted uppercase">
-            Club utilisé
-          </p>
-          <ClubSelector value={club} onChange={changeClub} compact />
-          <p className="mt-2 text-[0.74rem] leading-relaxed text-muted">
-            Change-le pour réévaluer ce swing&nbsp;: l&rsquo;analyse est immédiate, la
-            vidéo n&rsquo;est pas retraitée. Sept règles sur douze ont une zone saine
-            qui dépend du club.
-          </p>
+          <div className="flex min-w-0 flex-1 flex-col gap-5">
+            <ScoreHeader report={data.report} modelInfo={data.modelInfo} />
+
+            <div className="rounded-2xl border border-line bg-surface p-3.5">
+              <p className="mb-2 text-xs font-semibold tracking-[0.14em] text-muted uppercase">
+                Club utilisé
+              </p>
+              <ClubSelector value={club} onChange={changeClub} compact />
+              <p className="mt-2 text-[0.74rem] leading-relaxed text-muted">
+                Change-le pour réévaluer ce swing&nbsp;: l&rsquo;analyse est immédiate, la
+                vidéo n&rsquo;est pas retraitée. Sept règles sur douze ont une zone saine
+                qui dépend du club.
+              </p>
+            </div>
+
+            <ReportView
+              report={data.report}
+              reference={reference}
+              selectedFaultId={selectedFault?.id ?? null}
+              onSelectFault={(fault) => {
+                setSelectedFault(fault)
+                seekTo(fault.evidenceFrame)
+              }}
+            />
+          </div>
         </div>
-
-        <SwingPlayer
-          url={data.url}
-          sequence={data.sequence}
-          report={data.report}
-          selectedFault={selectedFault}
-          seekRequest={seekRequest}
-          onFrameChange={setCurrentFrame}
-        />
-
-        <PhaseStrip report={data.report} currentFrame={currentFrame} onSeek={seekTo} />
-
-        <ReportView
-          report={data.report}
-          reference={reference}
-          selectedFaultId={selectedFault?.id ?? null}
-          onSelectFault={(fault) => {
-            setSelectedFault(fault)
-            seekTo(fault.evidenceFrame)
-          }}
-        />
       </div>
     )
   }

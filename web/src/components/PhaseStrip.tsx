@@ -14,7 +14,9 @@ interface Props {
  */
 export function PhaseStrip({ report, currentFrame, onSeek }: Props) {
   return (
-    <div className="-mx-4 overflow-x-auto px-4 pb-1">
+    // `min-w-0` est indispensable : sans lui, le contenu en `min-w-max`
+    // impose sa largeur au conteneur parent au lieu de défiler dedans.
+    <div className="w-full min-w-0 overflow-x-auto pb-1">
       <div className="flex min-w-max gap-2">
         {SWING_EVENTS.map((name) => {
           const frame = report.events[name]

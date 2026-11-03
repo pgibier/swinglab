@@ -16,6 +16,8 @@ interface Props {
   selectedFault: FaultResult | null
   seekRequest: SeekRequest | null
   onFrameChange?: (frame: number) => void
+  /** Hauteur maximale du cadre vidéo, pour laisser l'analyse visible à côté. */
+  maxHeight?: string
 }
 
 const SPEEDS = [0.15, 0.3, 0.6, 1] as const
@@ -43,6 +45,7 @@ export function SwingPlayer({
   selectedFault,
   seekRequest,
   onFrameChange,
+  maxHeight,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -52,6 +55,9 @@ export function SwingPlayer({
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState<number>(0.3)
   const [showSkeleton, setShowSkeleton] = useState(true)
+  // Lecture en boucle sur le swing : on veut voir le geste tourner, pas
+  // cliquer sur « lecture » à chaque fois.
+  const [loop, setLoop] = useState(true)
 
   const total = sequence.frames.length
   const faultColor = selectedFault ? SEVERITY_COLORS[selectedFault.severity] : SEVERITY_COLORS.none
@@ -72,12 +78,23 @@ export function SwingPlayer({
         canvas.height = Math.round(cssH * dpr)
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, cssW, cssH)
+
+      // La vidéo est affichée en « contain » : elle ne remplit pas forcément
+      // son cadre. L'overlay est donc calé sur le rectangle RÉELLEMENT occupé
+      // par l'image, sinon le squelette se décale dès que les proportions du
+      // cadre ne sont pas celles de la vidéo — ce qui arrive dès qu'on limite
+      // la hauteur pour laisser de la place à l'analyse.
+      const fit = Math.min(cssW / sequence.videoWidth, cssH / sequence.videoHeight)
+      const drawW = sequence.videoWidth * fit
+      const drawH = sequence.videoHeight * fit
+      ctx.translate((cssW - drawW) / 2, (cssH - drawH) / 2)
 
       const refFrame = selectedFault?.referenceFrame ?? report.events.address
       renderOverlay({
         ctx,
-        width: cssW,
-        height: cssH,
+        width: drawW,
+        height: drawH,
         frame: sequence.frames[index] ?? null,
         reference: sequence.frames[refFrame] ?? null,
         showSkeleton,
@@ -85,7 +102,7 @@ export function SwingPlayer({
         faultColor,
       })
     },
-    [faultColor, report.events.address, selectedFault, sequence.frames, showSkeleton],
+    [faultColor, report.events.address, selectedFault, sequence, showSkeleton],
   )
 
   const goToFrame = useCallback(
@@ -122,6 +139,13 @@ export function SwingPlayer({
     const tick = () => {
       const video = videoRef.current
       if (video) {
+        // Boucle bornée au swing : inutile de repasser par les secondes où le
+        // joueur se place ou range son club.
+        const loopEnd = sequence.timestamps[report.events.finish] ?? video.duration
+        const loopStart = sequence.timestamps[report.events.address] ?? 0
+        if (loop && video.currentTime >= loopEnd) {
+          video.currentTime = loopStart
+        }
         const index = frameAtTime(sequence.timestamps, video.currentTime)
         setFrame(index)
         draw(index)
@@ -133,7 +157,7 @@ export function SwingPlayer({
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
       rafRef.current = null
     }
-  }, [playing, draw, sequence.timestamps])
+  }, [playing, draw, loop, sequence.timestamps, report.events.address, report.events.finish])
 
   // Redessine à l'arrêt (changement de frame, de défaut sélectionné, de taille).
   useLayoutEffect(() => {
@@ -164,6 +188,12 @@ export function SwingPlayer({
     video.playbackRate = speed
     const t = sequence.timestamps[report.events.address]
     if (Number.isFinite(t)) video.currentTime = t
+    // Démarrage automatique : le swing tourne dès l'ouverture du rapport.
+    // Muet et en ligne, donc autorisé sans geste de l'utilisateur.
+    void video
+      .play()
+      .then(() => setPlaying(true))
+      .catch(() => setPlaying(false))
   }
 
   const togglePlay = () => {
@@ -187,9 +217,27 @@ export function SwingPlayer({
 
   return (
     <div className="flex flex-col gap-3">
+      {/*
+        La hauteur pilote la largeur quand une hauteur maximale est imposée :
+        le cadre épouse alors les proportions de la vidéo au lieu de la
+        laisser flotter entre deux bandes noires. `maxWidth` reprend la main
+        pour une vidéo en paysage, où c'est la largeur qui contraint.
+      */}
       <div
-        className="relative w-full overflow-hidden rounded-2xl bg-black"
-        style={{ aspectRatio: `${sequence.videoWidth} / ${sequence.videoHeight}` }}
+        className="relative mx-auto self-center overflow-hidden rounded-2xl bg-black"
+        style={
+          maxHeight
+            ? {
+                aspectRatio: `${sequence.videoWidth} / ${sequence.videoHeight}`,
+                height: maxHeight,
+                width: 'auto',
+                maxWidth: '100%',
+              }
+            : {
+                aspectRatio: `${sequence.videoWidth} / ${sequence.videoHeight}`,
+                width: '100%',
+              }
+        }
       >
         <video
           ref={videoRef}
@@ -211,13 +259,25 @@ export function SwingPlayer({
             {EVENT_LABELS[currentEvent]}
           </span>
         )}
-        <button
-          type="button"
-          onClick={() => setShowSkeleton((v) => !v)}
-          className="absolute right-3 top-3 rounded-lg bg-ink/75 px-2.5 py-1 text-xs font-medium backdrop-blur"
-        >
-          {showSkeleton ? 'Masquer le squelette' : 'Afficher le squelette'}
-        </button>
+        {/* Deux bascules compactes : le cadre vidéo peut être étroit. */}
+        <div className="absolute right-2 top-2 flex flex-col items-end gap-1">
+          {([
+            ['Boucle', loop, () => setLoop((v) => !v)],
+            ['Points', showSkeleton, () => setShowSkeleton((v) => !v)],
+          ] as const).map(([label, active, toggle]) => (
+            <button
+              key={label}
+              type="button"
+              onClick={toggle}
+              aria-pressed={active}
+              className={`rounded-lg px-2 py-0.5 text-[0.68rem] font-semibold backdrop-blur transition ${
+                active ? 'bg-accent/85 text-ink' : 'bg-ink/70 text-muted'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <input
@@ -265,6 +325,10 @@ export function SwingPlayer({
           </button>
         </div>
 
+        <span className="hidden text-[0.68rem] tabular-nums text-muted sm:inline">
+          {frame + 1}/{total}
+        </span>
+
         <div className="flex items-center gap-1">
           {SPEEDS.map((s) => (
             <button
@@ -281,9 +345,7 @@ export function SwingPlayer({
         </div>
       </div>
 
-      <p className="text-center text-xs tabular-nums text-muted">
-        Image {frame + 1} / {total} &middot; {(sequence.timestamps[frame] ?? 0).toFixed(2)} s
-      </p>
+
     </div>
   )
 }

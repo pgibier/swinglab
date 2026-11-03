@@ -141,6 +141,28 @@ export const EXTRACTION = {
    * seeks pour une précision temporelle dont on n'a pas besoin.
    */
   maxAnalysisFrames: 600,
+  /**
+   * Plafond d'images sur un appareil peu doté (mémoire ou cœurs limités).
+   * Safari mobile tue l'onglet bien avant d'afficher une erreur : mieux vaut
+   * une analyse un peu moins fine qu'une page qui plante.
+   */
+  maxAnalysisFramesLowEnd: 240,
+  /**
+   * Hauteur maximale de l'image envoyée à l'inférence, en pixels.
+   *
+   * Transmettre une image 1080×1920 ne gagne aucune précision et fait
+   * transiter plus de quatre fois plus de pixels par image. Sur iPhone,
+   * c'est la première cause de saturation mémoire.
+   *
+   * Valeur vérifiée sur un swing réel, même vidéo réduite à différentes
+   * hauteurs : à 512 px les mesures sont celles du 1080×1920 (inclinaison du
+   * buste 37,8° contre 37,5°, early extension 13,3 % contre 13,5 %), alors
+   * qu'à 256 px elles décrochent (early extension 10,6 %). D'où une valeur
+   * unique, sans mode dégradé : la précision de mesure ne doit pas dépendre
+   * de l'appareil, sans quoi la comparaison au corpus de référence perd son
+   * sens.
+   */
+  inferenceMaxHeight: 512,
   /** FPS supposés quand la mesure échoue. */
   fallbackFps: 30,
   /** Bornes de plausibilité de la mesure de FPS. */

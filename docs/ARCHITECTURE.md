@@ -128,6 +128,24 @@ filmé produit un chiffre, et ce chiffre est du bruit. Chaque règle déclare se
 vues valides ; hors de celles-ci, elle renvoie un « non évaluable » avec la
 raison, affiché à l'utilisateur.
 
+**Résolution d'entrée de l'inférence plafonnée à 512 px de haut.** Une vidéo
+de téléphone fait 1080×1920 ; transmettre ces images telles quelles à
+MediaPipe ne gagne aucune précision et saturait la mémoire de Safari mobile,
+qui tue l'onglet sans message. Vérifié sur un swing réel, même vidéo réduite à
+différentes hauteurs : à 512 px les mesures sont celles du 1080×1920
+(inclinaison du buste 37,8° contre 37,5°, early extension 13,3 % contre
+13,5 %), alors qu'à 256 px elles décrochent (early extension 10,6 %). La
+valeur est unique, sans mode dégradé : la précision de mesure ne doit pas
+dépendre de l'appareil, sans quoi la comparaison au corpus de référence perd
+son sens. Sur appareil contraint, c'est le NOMBRE d'images analysées qui
+baisse, pas leur finesse.
+
+**Le modèle léger est écarté, et c'est mesuré.** Comparé au modèle complet sur
+200 swings identiques, `lite` décale le glissement du bassin de 60 % de la
+dispersion interne, le sway de 33 %, le reverse pivot de 30 %. Les seuils
+étant calés avec le modèle complet, l'utiliser sur mobile fausserait
+silencieusement tous les diagnostics d'un utilisateur sur deux.
+
 **Overlay en canvas, pas gravé dans la vidéo.** Pas de ré-encodage (analyse
 bien plus rapide), overlays activables, scrub image par image fluide, et
 annotations différentes selon le défaut sélectionné — sans retraitement.

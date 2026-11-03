@@ -54,9 +54,11 @@ npm run setup:assets -- --models full
   d'affichage&nbsp;: sept des douze règles ont une zone saine qui dépend du club.
   Le changer dans le rapport réévalue le swing instantanément, sans retraiter
   la vidéo.
-- **Lecteur** — vidéo d'origine + overlay squelette, ralenti jusqu'à 0,15×,
-  avance image par image, saut direct sur chaque phase, et une annotation
-  dédiée par défaut (lignes de référence, flèches de déplacement).
+- **Lecteur** — le swing tourne en boucle avec les points du corps superposés,
+  ralenti jusqu'à 0,15×, avance image par image, saut direct sur chaque phase,
+  et une annotation dédiée par défaut (lignes de référence, flèches de
+  déplacement). La vidéo reste visible pendant qu'on lit l'analyse : collée en
+  haut sur téléphone, en colonne à côté sur grand écran.
 
 Deux partis pris qui structurent tout le reste :
 
