@@ -95,6 +95,33 @@ export function ReportView({ report, selectedFaultId, onSelectFault, reference }
         </section>
       )}
 
+      {report.measurements.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-xs font-semibold tracking-[0.14em] text-muted uppercase">
+            Mesuré, mais non jugé ({report.measurements.length})
+          </h2>
+          <p className="text-[0.8rem] leading-relaxed text-muted">
+            Ces grandeurs sont mesurées sur ta vidéo, mais aucun seuil n&rsquo;est appliqué&nbsp;:
+            il n&rsquo;existe pas de corpus permettant d&rsquo;en établir une zone saine fiable.
+            Les afficher sans verdict vaut mieux que de leur inventer un seuil.
+          </p>
+          <ul className="flex flex-col gap-2">
+            {report.measurements.map((m) => (
+              <li key={m.id} className="rounded-xl border border-line bg-surface p-3.5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-[0.88rem] font-semibold">{m.label}</span>
+                  <span className="shrink-0 text-[0.95rem] font-semibold tabular-nums text-accent">
+                    {m.value}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-[0.7rem] text-muted">{m.unit}</p>
+                <p className="mt-1.5 text-[0.78rem] leading-relaxed text-muted">{m.note}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {report.notEvaluated.length > 0 && (
         <section className="flex flex-col gap-3">
           <h2 className="text-xs font-semibold tracking-[0.14em] text-muted uppercase">

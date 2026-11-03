@@ -29,12 +29,17 @@
  * conséquence.
  */
 
-import { EVENTS, QUALITY } from './config'
+import { EVENTS, EXTRACTION, QUALITY } from './config'
 import { argMax, argMin, clamp } from './geometry'
 import { derivative } from './smoothing'
 import type { CleanedPose } from './smoothing'
 import { handsSeries, hipCenter, medianTorso } from './normalize'
-import { SWING_EVENTS, type SwingEventConfidence, type SwingEvents } from './types'
+import {
+  SWING_EVENTS,
+  type BallObservation,
+  type SwingEventConfidence,
+  type SwingEvents,
+} from './types'
 
 export interface EventSignals {
   /** Abscisse du milieu des poignets. */
@@ -218,6 +223,7 @@ function enforceOrder(frames: number[], n: number): number[] {
 export function detectEvents(
   c: CleanedPose,
   sig: EventSignals,
+  ball?: BallObservation | null,
 ): {
   events: SwingEvents
   confidence: SwingEventConfidence
@@ -230,6 +236,8 @@ export function detectEvents(
    * 90e centile — pour un seuil de déclenchement à 6°.
    */
   addressWindow: { start: number; end: number }
+  /** Vrai si le départ de la balle confirme l'impact trouvé. */
+  impactCorroboratedByBall: boolean
 } {
   const n = c.n
   const minLen = Math.max(2, Math.round(EVENTS.minStillDuration * c.fps))
@@ -264,6 +272,37 @@ export function detectEvents(
   }
 
   const { address, top, impact, finish } = best
+  let impactCorroboratedByBall = false
+
+  /*
+   * La balle CORROBORE l'impact, elle ne le remplace pas.
+   *
+   * L'intention initiale était d'en faire la source : la disparition de la
+   * balle est l'événement lui-même, là où le point bas des mains n'en est
+   * qu'un proxy. Mesure faite sur un corpus annoté, c'est l'inverse qui se
+   * produit — laisser la balle fixer l'impact fait tomber la justesse de
+   * 79,5 % à 66,7 % à ±3 images, parce que la détection ramène trop souvent
+   * une motte de terre ou une ombre. Même en exigeant qu'elle corrobore la
+   * cinématique, le résultat reste en deçà (77,4 %).
+   *
+   * Un accord entre les deux reste une information : il élève la confiance
+   * sur l'image d'impact sans la déplacer.
+   */
+  if (
+    ball &&
+    ball.confidence >= EXTRACTION.ballMinConfidence &&
+    ball.departureFrame > top + 1 &&
+    ball.departureFrame <= n - 1
+  ) {
+    const measured = ball.departureFrame - 1
+    if (
+      measured > top &&
+      measured < finish &&
+      Math.abs(measured - impact) <= EXTRACTION.ballImpactMaxDisagreement
+    ) {
+      impactCorroboratedByBall = true
+    }
+  }
 
   // ---- 3. Hauteur des mains, référencée sur le bassin d'adresse ----
   const hipRef = hipCenter(c, address)
@@ -314,11 +353,14 @@ export function detectEvents(
   // La confiance du candidat retenu porte toute la détection : un score faible
   // signale une vidéo où aucun mouvement ne ressemble vraiment à un swing.
   const structural = clamp(0.35 + 0.6 * best.score, 0.2, 0.95)
-  const impactConf = clamp(
+  const baseImpactConf = clamp(
     structural * clamp(downswingFrames / QUALITY.minDownswingFrames, 0.3, 1),
     0.2,
     0.95,
   )
+  // Un impact confirmé par le départ de la balle est plus sûr, sans être
+  // déplacé pour autant.
+  const impactConf = impactCorroboratedByBall ? Math.max(baseImpactConf, 0.9) : baseImpactConf
   const proxyConf = clamp(structural * 0.65, 0.2, 0.6)
 
   const confidence: SwingEventConfidence = {
@@ -336,5 +378,6 @@ export function detectEvents(
     events,
     confidence,
     addressWindow: { start: Math.min(best.addressStart, events.address), end: events.address },
+    impactCorroboratedByBall,
   }
 }

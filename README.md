@@ -46,6 +46,10 @@ npm run setup:assets -- --models full
   WASM, exécuté image par image sur la vidéo importée.
 - **Phases** — les 8 événements du swing (adresse, club à l'horizontale,
   mi-montée, sommet, mi-descente, impact, mi-finish, finish).
+- **Balle** — repérée par ce qui la distingue de toutes les autres balles d'un
+  practice : elle est immobile avant l'impact et absente juste après. Son
+  départ **confirme** l'image d'impact, et sa position est mesurée. Sa
+  trajectoire, en revanche, n'est pas mesurable — voir plus bas.
 - **Diagnostic** — 12 règles biomécaniques : posture et flexion à l'adresse,
   écartement des pieds, sway, reverse pivot, stabilité de tête, early
   extension, glissement du bassin, loss of posture, chicken wing, tempo,
@@ -126,6 +130,16 @@ Avec `npm run setup:assets -- --models full`, les modèles sont inclus dans
   fiable, et à 30 i/s une tête de club est un trait flou. Les 4 phases que
   GolfDB définit par la position du club sont donc des approximations basées
   sur la hauteur des mains, avec une fiabilité plafonnée à 60 % dans l'app.
+- **La trajectoire de balle n'est pas mesurable, et ce n'est pas un choix.**
+  À 60 i/s, une balle parcourt plus d'un demi-mètre entre deux images et se
+  fond dans le flou. Vérifié sur vidéo réelle&nbsp;: après l'impact, aucun blob
+  exploitable ne subsiste — les seuls mouvements détectés sont les jambes et
+  le club. Il faudrait une caméra à plusieurs centaines d'images par seconde.
+- **La position de la balle est mesurée mais pas jugée.** Aucun corpus ne
+  permet d'en établir une zone saine fiable&nbsp;: sur les vignettes 160×160 du
+  corpus, la détection ramène trop souvent une motte de terre ou une ombre, et
+  les distributions obtenues sont absurdes (distance à la balle négative au
+  10ᵉ centile). L'app affiche donc la mesure sans verdict.
 - **Les douze seuils sont calés sur 409 swings de professionnels**, filtrés sur
   la qualité de pose, la fiabilité des phases et la stabilité de la caméra.
   Règle de calage : « léger » au 90ᵉ centile du corpus, « important » au 98ᵉ.

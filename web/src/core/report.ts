@@ -12,6 +12,7 @@ import { hasAll, pt, cleanSequence, type CleanedPose } from './smoothing'
 import { buildReference } from './normalize'
 import { computeSignals, detectEvents } from './events'
 import { computeMetrics } from './metrics'
+import { computeMeasurements } from './measurements'
 import { ALL_RULES, isNotEvaluated, penaltyOf, type FaultContext } from './faults'
 import type { ClubKind, FaultResult, PoseSequence, SwingQuality, SwingReport } from './types'
 
@@ -84,7 +85,13 @@ export function analyzeSequence(
   }
 
   const sig = computeSignals(c)
-  const { events, confidence: eventConfidence, addressWindow } = detectEvents(c, sig)
+  const ball = seq.ball ?? null
+  const {
+    events,
+    confidence: eventConfidence,
+    addressWindow,
+    impactCorroboratedByBall,
+  } = detectEvents(c, sig, ball)
   const ref = buildReference(c, events.address, events.top)
   const metrics = computeMetrics(c, ref, sig)
 
@@ -98,6 +105,7 @@ export function analyzeSequence(
 
   const ctx: FaultContext = {
     c, ref, events, addressWindow, eventConfidence, metrics, quality,
+    ball,
     club,
     faults: faultsFor(club),
   }
@@ -173,6 +181,8 @@ export function analyzeSequence(
     report: {
       meta: {
         club,
+        impactCorroboratedByBall,
+        ball,
         view: ref.view,
         viewConfidence: ref.viewConfidence,
         handedness: ref.handedness,
@@ -186,6 +196,7 @@ export function analyzeSequence(
       eventConfidence,
       metrics,
       faults,
+      measurements: computeMeasurements({ c, ref, events, ball }),
       notEvaluated: notEvaluatedList,
       score,
     },

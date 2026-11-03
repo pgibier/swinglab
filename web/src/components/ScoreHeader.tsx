@@ -70,6 +70,12 @@ export function ScoreHeader({ report, modelInfo }: Props) {
           {Math.round(meta.fps)} i/s analysées
         </span>
         <span className="rounded-lg border border-line bg-surface-2 px-2 py-1">{modelInfo}</span>
+        {meta.ball && (
+          <span className="rounded-lg border border-[color:var(--color-sev-none)]/30 bg-[color:var(--color-sev-none)]/10 px-2 py-1 text-[color:var(--color-sev-none)]">
+            Balle repérée
+            {meta.impactCorroboratedByBall ? ' · impact confirmé' : ''}
+          </span>
+        )}
       </div>
 
       {meta.warnings.length > 0 && (

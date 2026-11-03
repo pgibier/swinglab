@@ -40,6 +40,7 @@ function toSequence(raw: Partial<PoseSequence>): PoseSequence {
     timestamps: raw.timestamps ?? raw.frames.map((_, i) => i / fps),
     videoWidth: raw.videoWidth ?? 1080,
     videoHeight: raw.videoHeight ?? 1920,
+    ball: raw.ball ?? null,
   }
 }
 
@@ -113,6 +114,8 @@ if (argv[0] === '--batch') {
           ok: true,
           club,
           view: r.meta.view,
+          impactSource: r.meta.impactSource,
+          hasBall: r.meta.ball !== null,
           viewConfidence: r.meta.viewConfidence,
           handedness: r.meta.handedness,
           fps: r.meta.fps,

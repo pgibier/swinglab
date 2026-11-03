@@ -128,6 +128,37 @@ filmé produit un chiffre, et ce chiffre est du bruit. Chaque règle déclare se
 vues valides ; hors de celles-ci, elle renvoie un « non évaluable » avec la
 raison, affiché à l'utilisateur.
 
+**La balle est ce qui disparaît.** Un practice est jonché de balles : en
+chercher une par sa couleur ou sa forme ne distingue pas celle qui est
+frappée. On exploite donc la seule propriété qui n'appartient qu'à elle —
+immobile avant l'impact, absente juste après. La différence entre la moyenne
+des images d'avant et celle d'après la fait ressortir seule. Vérifié sur une
+vidéo réelle, cela la localise exactement, et à 512 px de haut la position
+reste juste à 0,3 % près de celle mesurée en 1080×1920.
+
+**Mais la balle corrobore l'impact, elle ne le fixe pas.** L'intention
+initiale était d'en faire la source : la disparition de la balle est
+l'événement lui-même, là où le point bas des mains n'en est qu'un proxy. La
+mesure dit l'inverse. Sur le corpus annoté, laisser la balle dater l'impact
+fait tomber la justesse de **79,5 % à 66,7 %** à ±3 images ; même en exigeant
+qu'elle corrobore la cinématique, on reste à 77,4 %. Sur des vignettes 160×160
+de retransmission, la détection ramène trop souvent une motte de terre ou une
+ombre. Un accord entre les deux reste une information : il élève la confiance
+sur l'image d'impact sans la déplacer.
+
+**Mesuré mais non jugé.** La position de la balle dans le stance et la
+distance du joueur à la balle sont des fondamentaux réels, et l'app les
+mesure. Elle ne leur applique aucun seuil : les distributions obtenues sur le
+corpus sont inexploitables — distance à la balle négative au 10ᵉ centile, ce
+qui est physiquement impossible. Le rapport les affiche donc dans une section
+distincte, avec la raison. Leur inventer un seuil les aurait fait rejoindre
+les six règles qui signalaient des défauts imaginaires avant calage.
+
+**La trajectoire n'est pas mesurable.** À 60 i/s une balle parcourt plus d'un
+demi-mètre entre deux images. Vérifié image par image après l'impact : les
+seuls blobs détectables sont les jambes et le club. Ce n'est pas un manque
+d'effort, c'est une limite de cadence.
+
 **Résolution d'entrée de l'inférence plafonnée à 512 px de haut.** Une vidéo
 de téléphone fait 1080×1920 ; transmettre ces images telles quelles à
 MediaPipe ne gagne aucune précision et saturait la mémoire de Safari mobile,

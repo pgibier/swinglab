@@ -220,6 +220,34 @@ export const EXTRACTION = {
   breatherEveryFrames: 24,
   /** Durée de cette pause, en millisecondes. */
   breatherMs: 40,
+  // --- Détection de la balle ---
+  /** Images moyennées avant l'impact présumé pour obtenir « la balle en place ». */
+  ballBeforeFrames: 20,
+  /** Images moyennées après, pour obtenir « la balle partie ». */
+  ballAfterFrames: 20,
+  /** Décalage, en images, avant de commencer à moyenner l'après-impact (flou du club). */
+  ballAfterSkip: 5,
+  /** Bornes du rayon de la balle, en fraction de la longueur du torse. */
+  ballMinRadiusU: 0.012,
+  ballMaxRadiusU: 0.09,
+  /** Compacité minimale du blob : une balle est ronde et pleine. */
+  ballMinFill: 0.45,
+  /** Corrélation en deçà de laquelle la balle est considérée partie. */
+  ballDepartureCorrelation: 0.55,
+  /** Confiance minimale pour que la balle serve à fixer l'impact. */
+  ballMinConfidence: 0.5,
+  /**
+   * Écart maximal, en images, entre le départ de la balle et l'impact déduit
+   * de la cinématique, pour que la balle fasse foi.
+   *
+   * Mesuré : sur des vignettes 160×160 de retransmission, la détection ramène
+   * surtout des faux positifs (motte de terre, ombre, débris), et laisser la
+   * balle fixer l'impact fait TOMBER la justesse de 79,5 % à 66,7 % à ±3
+   * images. La balle ne doit donc AFFINER l'impact que lorsqu'elle corrobore
+   * la cinématique ; en cas de désaccord franc, c'est la détection de balle
+   * qui est suspecte, pas le corps.
+   */
+  ballImpactMaxDisagreement: 4,
   /** Seuils de confiance passés à MediaPipe. */
   minPoseDetectionConfidence: 0.5,
   minPosePresenceConfidence: 0.5,
@@ -280,24 +308,6 @@ export interface FaultThresholds {
 }
 
 export const FAULTS: FaultThresholds = {
-  // =========================================================================
-  // SEUILS CALÉS SUR DONNÉES — 409 swings de professionnels (GolfDB)
-  //
-  // Retenus après filtrage : pose détectée sur plus de 90 % des images, vue
-  // identifiée avec confiance, phases détectées avec confiance, et caméra
-  // stable (déplacement apparent des chevilles sous 10 % du torse entre
-  // l'adresse et l'impact). 1 045 clips analysés, 409 retenus : un corpus
-  // bruité fausse les centiles, donc les seuils.
-  //
-  // Règle de calage : « léger » au 90e centile du corpus, « important » au
-  // 98e. Un bon joueur traverse donc l'analyse sans être couvert d'alertes,
-  // tandis qu'un débutant sort franchement de ces bornes.
-  //
-  // Réserve honnête : ce corpus est fait d'images de retransmission, dont les
-  // conditions de prise de vue diffèrent d'un téléphone posé au sol. Les
-  // valeurs restent des ordres de grandeur mesurés, pas une norme.
-  // =========================================================================
-
   /**
    * Inclinaison du buste vers l'avant à l'adresse (degrés depuis la verticale).
    * Dépend du club : médiane 28,0° au driver contre 34,2° au fer. L'app ne

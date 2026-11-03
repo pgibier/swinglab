@@ -14,7 +14,7 @@
 
 import { LM, SKELETON_EDGES } from '../core/landmarks'
 import { SMOOTHING } from '../core/config'
-import type { FaultResult, Landmark } from '../core/types'
+import type { BallObservation, FaultResult, Landmark } from '../core/types'
 
 const JOINT_RADIUS = 4.5
 const BONE_WIDTH = 3
@@ -274,6 +274,24 @@ function hipDisplacement({ ctx, frame, reference, width, height, color }: Annota
   marker(ctx, hip, color, 9)
 }
 
+/** Repère de la balle, avec un rayon minimal pour rester visible. */
+function drawBall(ctx: CanvasRenderingContext2D, ball: BallObservation, w: number, h: number): void {
+  const cx = ball.x * w
+  const cy = ball.y * h
+  const r = Math.max(7, ball.radius * h * 1.6)
+  ctx.save()
+  ctx.lineWidth = 2.5
+  ctx.strokeStyle = 'rgba(255, 210, 90, 0.95)'
+  ctx.beginPath()
+  ctx.arc(cx, cy, r, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.arc(cx, cy, 1.6, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(255, 210, 90, 0.95)'
+  ctx.fill()
+  ctx.restore()
+}
+
 export interface OverlayRequest {
   ctx: CanvasRenderingContext2D
   width: number
@@ -284,11 +302,14 @@ export interface OverlayRequest {
   /** Défaut sélectionné, dont l'annotation dédiée est tracée. */
   fault: FaultResult | null
   faultColor: string
+  /** Balle repérée, dessinée en repère permanent. */
+  ball?: BallObservation | null
 }
 
 export function renderOverlay(req: OverlayRequest): void {
-  const { ctx, width, height, frame, reference, showSkeleton, fault, faultColor } = req
+  const { ctx, width, height, frame, reference, showSkeleton, fault, faultColor, ball } = req
   ctx.clearRect(0, 0, width, height)
+  if (ball && showSkeleton) drawBall(ctx, ball, width, height)
   if (!frame) return
   if (showSkeleton) drawSkeleton(ctx, frame, width, height)
   if (fault) {

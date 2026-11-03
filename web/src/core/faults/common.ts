@@ -6,6 +6,7 @@ import { clamp, meanFinite } from '../geometry'
 import type { CleanedPose } from '../smoothing'
 import type { BodyRef } from '../normalize'
 import type {
+  BallObservation,
   ClubKind,
   FaultResult,
   MetricSeries,
@@ -23,6 +24,8 @@ export interface FaultContext {
   events: SwingEvents
   /** Plage d'immobilité à l'adresse, sur laquelle les mesures de setup sont moyennées. */
   addressWindow: { start: number; end: number }
+  /** Balle repérée dans la vidéo, si elle l'a été. */
+  ball: BallObservation | null
   /** Club déclaré par l'utilisateur ; 'unknown' s'il ne l'a pas précisé. */
   club: ClubKind
   /**

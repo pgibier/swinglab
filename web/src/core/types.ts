@@ -20,6 +20,34 @@ export interface Landmark {
 export type PoseFrame = Landmark[] | null
 
 /** Séquence de pose brute extraite d'une vidéo. */
+/**
+ * Observation de la balle, lorsqu'elle a pu être repérée.
+ *
+ * La balle est détectée par ce qui la distingue de toutes les autres balles
+ * d'un practice : elle est immobile avant l'impact et absente juste après.
+ * La différence entre la moyenne des images d'avant et celle d'après la fait
+ * ressortir seule.
+ *
+ * Ce que cela permet : mesurer l'impact au lieu de le déduire de la
+ * cinématique du corps, et situer la balle par rapport aux appuis.
+ *
+ * Ce que cela ne permet pas : suivre la trajectoire. À 60 i/s une balle
+ * parcourt plus d'un demi-mètre entre deux images et se fond dans le flou ;
+ * vérifié sur vidéo réelle, aucun blob exploitable ne subsiste après
+ * l'impact.
+ */
+export interface BallObservation {
+  /** Position normalisée de la balle à l'adresse, comme les points clés. */
+  x: number
+  y: number
+  /** Rayon, normalisé sur la hauteur d'image. */
+  radius: number
+  /** Première image où la balle a quitté sa place : l'impact est juste avant. */
+  departureFrame: number
+  /** Confiance [0..1]. */
+  confidence: number
+}
+
 export interface PoseSequence {
   frames: PoseFrame[]
   /**
@@ -41,6 +69,8 @@ export interface PoseSequence {
    * le bord de la fenêtre, et donc qu'elle était trop serrée.
    */
   window?: { startSec: number; endSec: number; trimmed: boolean }
+  /** Balle repérée dans la vidéo, si elle l'a été. */
+  ball?: BallObservation | null
 }
 
 export type ViewType = 'face_on' | 'down_the_line' | 'unknown'
@@ -137,6 +167,25 @@ export interface MetricSeries {
   handSpeed: number[]
 }
 
+/**
+ * Mesure rapportée sans verdict.
+ *
+ * Certaines grandeurs sont mesurables mais pas jugeables : il n'existe aucun
+ * corpus permettant d'en fixer une zone saine. Les afficher sans seuil est
+ * honnête ; leur inventer un seuil ne le serait pas.
+ */
+export interface Measurement {
+  id: string
+  label: string
+  value: number
+  unit: string
+  confidence: number
+  /** Image à montrer dans le lecteur. */
+  frame: number
+  /** Ce que la mesure signifie, et pourquoi elle n'est pas jugée. */
+  note: string
+}
+
 export interface SwingQuality {
   /** Part de frames où une pose exploitable a été trouvée [0..1]. */
   poseCoverage: number
@@ -158,6 +207,15 @@ export interface SwingReport {
   meta: {
     /** Club déclaré par l'utilisateur, qui détermine les zones saines appliquées. */
     club: ClubKind
+    /**
+     * Vrai quand le départ de la balle confirme l'image d'impact trouvée par
+     * la cinématique. La balle ne DÉPLACE pas l'impact : mesuré sur un corpus
+     * annoté, s'en servir comme source dégrade la justesse de 79,5 % à 66,7 %,
+     * les détections sur images de retransmission étant trop souvent fausses.
+     */
+    impactCorroboratedByBall: boolean
+    /** Balle repérée, si elle l'a été. */
+    ball: BallObservation | null
     view: ViewType
     viewConfidence: number
     handedness: Handedness
@@ -172,6 +230,8 @@ export interface SwingReport {
   eventConfidence: SwingEventConfidence
   metrics: MetricSeries
   faults: FaultResult[]
+  /** Grandeurs mesurées mais non jugées, faute de référence. */
+  measurements: Measurement[]
   /**
    * Règles qu'on ne peut PAS évaluer sur cette vidéo (mauvaise vue, pose
    * insuffisante, événement non fiable). On les affiche pour que l'utilisateur

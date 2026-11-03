@@ -100,9 +100,10 @@ export function SwingPlayer({
         showSkeleton,
         fault: selectedFault,
         faultColor,
+        ball: report.meta.ball,
       })
     },
-    [faultColor, report.events.address, selectedFault, sequence, showSkeleton],
+    [faultColor, report.events.address, report.meta.ball, selectedFault, sequence, showSkeleton],
   )
 
   const goToFrame = useCallback(

@@ -7,6 +7,7 @@ import { PhaseStrip } from './components/PhaseStrip'
 import { SwingPlayer, type SeekRequest } from './components/SwingPlayer'
 import { ReportView } from './components/ReportView'
 import { ModelLoadError, loadLandmarker, type LoadedLandmarker } from './pose/mediapipe'
+import { detectBall } from './pose/ball'
 import {
   extractPoseSequence,
   isLowEndDevice,
@@ -235,11 +236,50 @@ export default function App() {
         return
       }
 
+      /*
+       * Repérage de la balle, une fois l'impact cinématique connu — il sert
+       * de point de départ à la recherche. Si elle est trouvée, son départ
+       * DATE l'impact au lieu de le déduire, et l'analyse est refaite : seules
+       * les règles tournent à nouveau, la détection de pose n'est pas
+       * recommencée.
+       *
+       * Une balle absente (swing à vide, filet, mauvais angle) n'est pas une
+       * erreur : on garde simplement l'impact cinématique.
+       */
+      try {
+        mark('repérage de la balle')
+        setStage({
+          k: 'working',
+          label: 'Repérage de la balle…',
+          detail: 'Pour dater l\u2019impact précisément.',
+          ratio: 0.99,
+        })
+        const ball = await detectBall(video, sequence, outcome.report.events.impact, {
+          signal: controller.signal,
+          lowEnd,
+        })
+        if (ball) {
+          sequence = { ...sequence, ball }
+          const withBall = analyzeSequence(sequence, { club: clubRef.current })
+          if (withBall.ok) outcome = withBall
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') throw err
+        // La balle est un bonus : son échec ne doit pas emporter l'analyse.
+      }
+
       // Le décodeur de l'élément d'extraction est libéré : sur mobile, le
       // lecteur du rapport en ouvre un second, et deux décodeurs vivants pour
       // la même vidéo pèsent lourd.
       releaseVideo(video)
-      clearMark()
+      /*
+       * La marque n'est pas effacée tout de suite : si la page meurt en
+       * affichant le rapport — lecture en boucle, overlay redessiné à chaque
+       * image —, le plantage serait invisible au diagnostic. On la laisse
+       * quelques secondes, le temps que le rapport tienne debout.
+       */
+      mark('affichage du rapport')
+      window.setTimeout(clearMark, 6000)
 
       setCurrentFrame(outcome.report.events.address)
       setStage({
