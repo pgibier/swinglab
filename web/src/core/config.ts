@@ -258,10 +258,17 @@ export const EXTRACTION = {
   // quoi il est fait.
   /**
    * Vitesses de lecture essayées, de la plus rapide à la plus lente.
-   * À 0,06 sur une vidéo 60 i/s, l'inférence dispose de 278 ms par image —
+   * À 0,0625 sur une vidéo 60 i/s, l'inférence dispose de 267 ms par image —
    * de quoi tenir même sur un téléphone lent.
+   *
+   * 0,0625 (1/16) est le plancher : sous cette valeur, Chromium et WebKit
+   * lèvent une exception au lieu de ramener la vitesse dans la plage. Une
+   * valeur plus basse ne ralentit donc pas la lecture, elle fait échouer
+   * l'analyse entière. Vérifié par le test de bout en bout, qui avait
+   * remonté « The provided playback rate (0.06) is not in the supported
+   * playback range ».
    */
-  playbackRates: [0.5, 0.25, 0.12, 0.06],
+  playbackRates: [0.5, 0.25, 0.12, 0.0625],
   /** Part d'images à capturer pour juger une passe réussie. */
   minCaptureRatio: 0.85,
   /**

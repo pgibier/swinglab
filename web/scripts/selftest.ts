@@ -12,6 +12,7 @@
 import { analyzeSequence, type AnalysisOptions } from '../src/core/report'
 import { SWING_EVENTS, type SwingReport } from '../src/core/types'
 import { synthSwing, type SynthOptions } from './synth'
+import { EXTRACTION } from '../src/core/config'
 
 let failures = 0
 let checks = 0
@@ -372,6 +373,27 @@ console.log('\n[17] Le rapport constate, il ne note pas')
     `${report.coverage.notMeasured.length} dimensions`)
   check('aucune note sur 100 n\u2019est exposée',
     !('score' in (report as unknown as Record<string, unknown>)))
+}
+
+// ---------------------------------------------------------------------------
+// [18] Paramètres de lecture acceptables par un navigateur
+//
+// Régression réelle : une vitesse de 0,06 avait été configurée. Chromium et
+// WebKit lèvent une exception sous 1/16 au lieu de ramener la valeur dans la
+// plage, ce qui faisait échouer l'analyse entière au lieu de la ralentir. Le
+// défaut n'était visible que dans un vrai navigateur ; ce contrôle le rend
+// détectable sans en lancer un.
+console.log('\n[18] Vitesses de lecture dans la plage supportée par un navigateur')
+{
+  const FLOOR = 0.0625
+  check('aucune vitesse sous le plancher HTML (1/16)',
+    EXTRACTION.playbackRates.every((r) => r >= FLOOR),
+    EXTRACTION.playbackRates.join(', '))
+  check('vitesses ordonnées de la plus rapide à la plus lente',
+    EXTRACTION.playbackRates.every((r, i, a) => i === 0 || r < a[i - 1]),
+    EXTRACTION.playbackRates.join(', '))
+  check('aucune vitesse au-dessus de 16',
+    EXTRACTION.playbackRates.every((r) => r <= 16))
 }
 
 // ---------------------------------------------------------------------------

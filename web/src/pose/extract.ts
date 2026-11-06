@@ -371,7 +371,17 @@ async function captureByPlayback(
     } catch {
       return null
     }
-    video.playbackRate = rate
+    try {
+      video.playbackRate = rate
+    } catch {
+      /*
+       * Vitesse refusée par le navigateur (hors plage supportée). Les
+       * suivantes étant plus lentes, elles le seront aussi : on abandonne la
+       * lecture au profit du parcours par seek plutôt que de laisser
+       * l'exception faire échouer l'analyse entière.
+       */
+      return null
+    }
     video.muted = true
 
     const done = new Promise<'ok' | 'slow'>((resolve) => {
