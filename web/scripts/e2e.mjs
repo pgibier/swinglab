@@ -176,10 +176,20 @@ check('progression affichée pendant l’extraction', true)
 
 // Fin de traitement : rapport, ou message d'erreur attendu sur une vidéo sans joueur.
 const REPORT_MARKER = 'text=Ce que cette analyse ne mesure pas'
+/*
+ * Délai large et assumé. Quand l'appareil ne suit pas, la capture par lecture
+ * descend jusqu'à 1/16 de la vitesse réelle : une vidéo de dix secondes prend
+ * alors plus de deux minutes. Un navigateur sans accélération matérielle, dans
+ * un conteneur, y descend systématiquement. Un délai trop court ferait passer
+ * cette lenteur pour une panne.
+ */
+const ANALYSIS_TIMEOUT = 420_000
 const outcome = await Promise.race([
-  page.waitForSelector(REPORT_MARKER, { timeout: 180_000 }).then(() => 'report'),
-  page.waitForSelector('text=Réessayer', { timeout: 180_000 }).then(() => 'error'),
-])
+  page.waitForSelector(REPORT_MARKER, { timeout: ANALYSIS_TIMEOUT }).then(() => 'report'),
+  page.waitForSelector('text=Réessayer', { timeout: ANALYSIS_TIMEOUT }).then(() => 'error'),
+]).catch(() => 'timeout')
+check('analyse terminée dans le délai imparti', outcome !== 'timeout',
+  `aucun rapport ni message d'erreur après ${ANALYSIS_TIMEOUT / 1000} s`)
 const bodyText = await page.textContent('body')
 
 check('runtime WASM chargé localement', requests.some((r) => r.startsWith('200') && r.includes('wasm')),
@@ -220,8 +230,8 @@ await page.waitForSelector('input[type=file]', { state: 'attached', timeout: 15_
 await page.setInputFiles('input[type=file]', videoPath)
 await page.waitForSelector('text=Détection des points du corps', { timeout: 60_000 })
 const secondOutcome = await Promise.race([
-  page.waitForSelector(REPORT_MARKER, { timeout: 300_000 }).then(() => 'report'),
-  page.waitForSelector('text=Réessayer', { timeout: 300_000 }).then(() => 'error'),
+  page.waitForSelector(REPORT_MARKER, { timeout: ANALYSIS_TIMEOUT }).then(() => 'report'),
+  page.waitForSelector('text=Réessayer', { timeout: ANALYSIS_TIMEOUT }).then(() => 'error'),
 ]).catch(() => 'timeout')
 check('la deuxième analyse aboutit comme la première', secondOutcome === outcome,
   `${secondOutcome} vs ${outcome}`)
