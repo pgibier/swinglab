@@ -358,121 +358,144 @@ async function captureByPlayback(
   if (!request) return null
 
   const expected = Math.max(1, Math.round((end - start) * sourceFps))
+  const frameBudgetMs = 1000 / sourceFps
+
+  try {
+    await seekTo(video, start)
+  } catch {
+    return null
+  }
 
   /*
-   * Décalage appliqué aux horodatages d'une passe. MediaPipe exige des
-   * horodatages strictement croissants sur la durée de vie du détecteur :
-   * une passe abandonnée puis reprise à une vitesse plus lente repasse sur
-   * les mêmes instants de la vidéo, et sans ce décalage les horodatages
-   * reculeraient.
+   * Chronométrage préalable, à l'arrêt sur l'image de départ.
+   *
+   * L'ancienne approche essayait les vitesses l'une après l'autre et
+   * abandonnait une passe trop lente au bout de vingt images. Elle coûtait
+   * trois passes perdues, mais surtout elle REPARTAIT du début de la vidéo
+   * avec un détecteur dont le suivi était resté calé sur la vingtième image.
+   * MediaPipe déduit la région de recherche de l'image précédente : repartir
+   * en arrière lui fait chercher le joueur au mauvais endroit pendant une
+   * vingtaine d'images. Mesuré sur un swing annoté, l'adresse passait de
+   * l'image 3 à l'image 20, et comme l'angle de prise de vue se classifie sur
+   * l'image d'adresse, la confiance tombait de 0,97 à 0,05 : la vue devenait
+   * « indéterminée » et les huit règles qui en dépendent se taisaient.
+   *
+   * Chronométrer d'abord règle les deux problèmes d'un coup : la vitesse est
+   * choisie une fois pour toutes, et les inférences d'essai amorcent le suivi
+   * sur la pose d'adresse elle-même.
    */
-  let passOffsetMs = 0
-
-  for (const rate of EXTRACTION.playbackRates) {
+  const samples: number[] = []
+  let probeOffsetMs = 0
+  for (let i = 0; i < EXTRACTION.timingProbeFrames; i++) {
     if (opts.signal?.aborted) throw new DOMException('Analyse annulée', 'AbortError')
-    const captured: CapturedFrame[] = []
-    let handle = 0
-    let stopped = false
-    let lastOffsetMs = passOffsetMs
+    const t0 = performance.now()
+    draw(probeOffsetMs)
+    samples.push(performance.now() - t0)
+    probeOffsetMs += Math.round(frameBudgetMs)
+    await yieldToUI()
+  }
+  samples.sort((a, b) => a - b)
+  const medianMs = samples[samples.length >> 1] ?? 0
+  const affordable = medianMs > 0
+    ? frameBudgetMs / (medianMs * EXTRACTION.inferenceSafetyMargin)
+    : Number.POSITIVE_INFINITY
+  const rates = EXTRACTION.playbackRates
+  const rate = rates.find((r) => r <= affordable) ?? rates[rates.length - 1]
 
-    try {
-      await seekTo(video, start)
-    } catch {
-      return null
-    }
-    try {
-      video.playbackRate = rate
-    } catch {
-      /*
-       * Vitesse refusée par le navigateur (hors plage supportée). Les
-       * suivantes étant plus lentes, elles le seront aussi : on abandonne la
-       * lecture au profit du parcours par seek plutôt que de laisser
-       * l'exception faire échouer l'analyse entière.
-       */
-      return null
-    }
-    video.muted = true
+  // La passe utile repart après les horodatages consommés par l'amorçage.
+  const passOffsetMs = probeOffsetMs + 1000
+  const captured: CapturedFrame[] = []
+  let handle = 0
+  let stopped = false
 
-    const done = new Promise<'ok' | 'slow'>((resolve) => {
-      /*
-       * Deux sorties de secours indispensables : la vidéo peut se terminer
-       * avant d'atteindre la borne (requestVideoFrameCallback cesse alors
-       * d'être appelé et la promesse ne se résoudrait jamais), et la lecture
-       * peut se bloquer sur une ressource occupée. Sans elles, l'application
-       * gèle au lieu d'échouer.
-       */
-      const finish = (verdict: 'ok' | 'slow') => {
-        if (stopped) return
-        stopped = true
-        video.removeEventListener('ended', onEnded)
-        window.clearTimeout(guard)
-        resolve(verdict)
+  try {
+    video.playbackRate = rate
+  } catch {
+    /*
+     * Vitesse refusée par le navigateur (hors plage supportée) : on abandonne
+     * la lecture au profit du parcours par seek plutôt que de laisser
+     * l'exception faire échouer l'analyse entière.
+     */
+    return null
+  }
+  video.muted = true
+
+  const done = new Promise<'ok' | 'slow'>((resolve) => {
+    /*
+     * Deux sorties de secours indispensables : la vidéo peut se terminer
+     * avant d'atteindre la borne (requestVideoFrameCallback cesse alors
+     * d'être appelé et la promesse ne se résoudrait jamais), et la lecture
+     * peut se bloquer sur une ressource occupée. Sans elles, l'application
+     * gèle au lieu d'échouer.
+     */
+    const finish = (verdict: 'ok' | 'slow') => {
+      if (stopped) return
+      stopped = true
+      video.removeEventListener('ended', onEnded)
+      window.clearTimeout(guard)
+      resolve(verdict)
+    }
+    const onEnded = () => finish('ok')
+    video.addEventListener('ended', onEnded)
+    // Marge large : trois fois la durée théorique de lecture, plus dix
+    // secondes de démarrage.
+    const guard = window.setTimeout(
+      () => finish('ok'),
+      ((end - start) / rate) * 3000 + 10000,
+    )
+
+    const onFrame = (_now: number, meta: VideoFrameMeta) => {
+      if (stopped) return
+      if (opts.signal?.aborted || meta.mediaTime >= end) {
+        finish('ok')
+        return
       }
-      const onEnded = () => finish('ok')
-      video.addEventListener('ended', onEnded)
-      // Marge large : trois fois la durée théorique de lecture, plus dix
-      // secondes de démarrage.
-      const guard = window.setTimeout(
-        () => finish('ok'),
-        ((end - start) / rate) * 3000 + 10000,
+      /*
+       * L'horodatage doit être le temps réel écoulé dans la vidéo, en
+       * millisecondes. Un simple compteur incrémenté d'une unité par image
+       * annonce à MediaPipe des images distantes d'une milliseconde : son
+       * lissage temporel, qui dépend du temps écoulé, se dérègle alors
+       * complètement et retarde les points clés. Mesuré sur un swing annoté à
+       * la main : sommet à l'image 42 au lieu de 28, impact à 47 au lieu de
+       * 34. Le parcours par seek, lui, a toujours transmis le temps réel.
+       */
+      const offsetMs = passOffsetMs + Math.round((meta.mediaTime - start) * 1000)
+      captured.push({ time: meta.mediaTime, frame: draw(offsetMs) })
+      opts.onProgress?.(
+        Math.min(1, (meta.mediaTime - start) / Math.max(1e-6, end - start)),
+        captured.length,
+        expected,
       )
-
-      const onFrame = (_now: number, meta: VideoFrameMeta) => {
-        if (stopped) return
-        if (opts.signal?.aborted || meta.mediaTime >= end) {
-          finish('ok')
+      // Cadence insuffisante malgré le chronométrage : inutile de finir une
+      // passe trouée, le parcours par seek fera mieux.
+      if (captured.length === EXTRACTION.captureProbeFrames) {
+        const span = captured[captured.length - 1].time - captured[0].time
+        const got = captured.length / Math.max(1, Math.round(span * sourceFps) + 1)
+        if (got < EXTRACTION.minAcceptableCaptureRatio) {
+          finish('slow')
           return
         }
-        /*
-         * L'horodatage doit être le temps réel écoulé dans la vidéo, en
-         * millisecondes. Un simple compteur incrémenté d'une unité par image
-         * annonce à MediaPipe des images distantes d'une milliseconde : son
-         * lissage temporel, qui dépend du temps écoulé, se dérègle alors
-         * complètement et retarde les points clés. Mesuré sur un swing
-         * annoté à la main : sommet à l'image 42 au lieu de 28, impact à 47
-         * au lieu de 34. Le parcours par seek, lui, a toujours transmis le
-         * temps réel — d'où l'écart entre les deux voies.
-         */
-        lastOffsetMs = passOffsetMs + Math.round((meta.mediaTime - start) * 1000)
-        captured.push({ time: meta.mediaTime, frame: draw(lastOffsetMs) })
-        opts.onProgress?.(
-          Math.min(1, (meta.mediaTime - start) / Math.max(1e-6, end - start)),
-          captured.length,
-          expected,
-        )
-        // Cadence insuffisante : inutile de finir une passe trouée.
-        if (captured.length === EXTRACTION.captureProbeFrames) {
-          const span = captured[captured.length - 1].time - captured[0].time
-          const got = captured.length / Math.max(1, Math.round(span * sourceFps) + 1)
-          if (got < EXTRACTION.minCaptureRatio && rate !== EXTRACTION.playbackRates[EXTRACTION.playbackRates.length - 1]) {
-            finish('slow')
-            return
-          }
-        }
-        handle = request(onFrame)
       }
       handle = request(onFrame)
-      video.play().catch(() => finish('ok'))
-    })
-
-    const verdict = await done
-    video.pause()
-    if (handle && cancel) cancel(handle)
-    // La passe suivante repart après les horodatages déjà consommés.
-    passOffsetMs = lastOffsetMs + 1000
-    if (verdict === 'slow') continue
-    if (captured.length < 4) return null
-
-    const ratio = captured.length / expected
-    if (ratio >= EXTRACTION.minCaptureRatio) return captured
-    const isLastRate = rate === EXTRACTION.playbackRates[EXTRACTION.playbackRates.length - 1]
-    if (isLastRate) {
-      // Même à la vitesse la plus lente, l'appareil ne suit pas : on préfère
-      // le parcours par seek, plus coûteux, à une séquence trouée.
-      return ratio >= EXTRACTION.minAcceptableCaptureRatio ? captured : null
     }
-  }
-  return null
+    handle = request(onFrame)
+    video.play().catch(() => finish('ok'))
+  })
+
+  const verdict = await done
+  video.pause()
+  if (handle && cancel) cancel(handle)
+  if (verdict === 'slow') return null
+  if (captured.length < 4) return null
+
+  /*
+   * Une seule passe, donc pas de seconde chance : on accepte une séquence
+   * légèrement trouée plutôt que de tout recommencer, mais en dessous du
+   * plancher le parcours par seek reprend la main. Une analyse lente vaut
+   * mieux qu'une analyse fausse.
+   */
+  const ratio = captured.length / expected
+  return ratio >= EXTRACTION.minAcceptableCaptureRatio ? captured : null
 }
 
 /**

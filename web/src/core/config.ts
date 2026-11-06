@@ -269,11 +269,32 @@ export const EXTRACTION = {
    * playback range ».
    */
   playbackRates: [0.5, 0.25, 0.12, 0.0625],
-  /** Part d'images à capturer pour juger une passe réussie. */
-  minCaptureRatio: 0.85,
   /**
-   * Plancher absolu sous lequel la capture par lecture est abandonnée au
-   * profit du parcours par seek.
+   * Nombre d'inférences chronométrées, à l'arrêt sur l'image de départ, avant
+   * de choisir la vitesse de lecture.
+   *
+   * Elles servent deux fins à la fois. Elles mesurent ce que l'appareil sait
+   * faire, ce qui évite d'essayer une vitesse trop rapide puis de recommencer.
+   * Et elles amorcent le suivi de MediaPipe sur la pose d'adresse, de sorte
+   * que la première image de la passe utile parte d'une région de recherche
+   * déjà juste. Mesuré : sans cet amorçage, les vingt premières images de la
+   * passe utile étaient dégradées au point de déplacer l'adresse de l'image 3
+   * à l'image 20, et de faire tomber la confiance sur l'angle de prise de vue
+   * de 0,97 à 0,05.
+   */
+  timingProbeFrames: 6,
+  /**
+   * Marge appliquée au temps d'inférence mesuré pour choisir la vitesse.
+   * Le décodage, le dessin et le reste de la page coûtent aussi du temps.
+   */
+  inferenceSafetyMargin: 1.8,
+  /**
+   * Plancher sous lequel la capture par lecture est abandonnée au profit du
+   * parcours par seek.
+   *
+   * C'est le seul seuil restant : depuis que la vitesse est choisie par
+   * chronométrage préalable, il n'y a plus de seconde passe, donc plus de
+   * seuil intermédiaire « trop lent, on recommence ».
    *
    * Sans ce plancher, un appareil trop lent produirait une séquence trouée
    * et une analyse silencieusement dégradée — ce qui est pire qu'une
