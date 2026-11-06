@@ -359,12 +359,21 @@ async function captureByPlayback(
 
   const expected = Math.max(1, Math.round((end - start) * sourceFps))
 
+  /*
+   * Décalage appliqué aux horodatages d'une passe. MediaPipe exige des
+   * horodatages strictement croissants sur la durée de vie du détecteur :
+   * une passe abandonnée puis reprise à une vitesse plus lente repasse sur
+   * les mêmes instants de la vidéo, et sans ce décalage les horodatages
+   * reculeraient.
+   */
+  let passOffsetMs = 0
+
   for (const rate of EXTRACTION.playbackRates) {
     if (opts.signal?.aborted) throw new DOMException('Analyse annulée', 'AbortError')
     const captured: CapturedFrame[] = []
     let handle = 0
     let stopped = false
-    let timestampMs = 0
+    let lastOffsetMs = passOffsetMs
 
     try {
       await seekTo(video, start)
@@ -414,7 +423,18 @@ async function captureByPlayback(
           finish('ok')
           return
         }
-        captured.push({ time: meta.mediaTime, frame: draw(timestampMs++) })
+        /*
+         * L'horodatage doit être le temps réel écoulé dans la vidéo, en
+         * millisecondes. Un simple compteur incrémenté d'une unité par image
+         * annonce à MediaPipe des images distantes d'une milliseconde : son
+         * lissage temporel, qui dépend du temps écoulé, se dérègle alors
+         * complètement et retarde les points clés. Mesuré sur un swing
+         * annoté à la main : sommet à l'image 42 au lieu de 28, impact à 47
+         * au lieu de 34. Le parcours par seek, lui, a toujours transmis le
+         * temps réel — d'où l'écart entre les deux voies.
+         */
+        lastOffsetMs = passOffsetMs + Math.round((meta.mediaTime - start) * 1000)
+        captured.push({ time: meta.mediaTime, frame: draw(lastOffsetMs) })
         opts.onProgress?.(
           Math.min(1, (meta.mediaTime - start) / Math.max(1e-6, end - start)),
           captured.length,
@@ -438,6 +458,8 @@ async function captureByPlayback(
     const verdict = await done
     video.pause()
     if (handle && cancel) cancel(handle)
+    // La passe suivante repart après les horodatages déjà consommés.
+    passOffsetMs = lastOffsetMs + 1000
     if (verdict === 'slow') continue
     if (captured.length < 4) return null
 
