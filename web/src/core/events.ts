@@ -96,6 +96,53 @@ function stillRuns(
 }
 
 /**
+ * Fenêtre la plus calme de `len` images dans `[lo, hi]`.
+ *
+ * Sert de filet quand aucune plage ne passe sous le seuil d'immobilité. Le
+ * seuil est un couperet : des vitesses qui oscillent autour de lui — ce qui
+ * arrive dès que les points clés tremblent de quelques millièmes — peuvent ne
+ * jamais rester dessous assez longtemps, alors que le joueur est bel et bien
+ * immobile. Mesuré sur un même swing extrait par deux chemins :
+ *
+ *   seek     0,068  0,068  0,112  0,293   → plage trouvée, adresse image 3
+ *   lecture  0,305  0,305  0,484  0,329   → aucune plage, adresse image 20
+ *
+ * Les deux décrivent le même joueur immobile. Le repli précédent — se placer
+ * à une durée fixe avant le sommet — tombait en plein départ de montée, et
+ * comme l'angle de prise de vue se classifie sur l'image d'adresse, tout le
+ * rapport suivait. Chercher un minimum plutôt qu'un franchissement de seuil
+ * donne toujours une réponse, et la meilleure disponible.
+ */
+function quietestWindow(
+  speed: Float64Array,
+  lo: number,
+  hi: number,
+  len: number,
+): { start: number; end: number; mean: number } | null {
+  const from = Math.max(0, lo)
+  const width = Math.max(1, Math.round(len))
+  if (hi - from + 1 < width) return null
+
+  let best: { start: number; end: number; mean: number } | null = null
+  for (let start = from; start + width - 1 <= hi; start++) {
+    let sum = 0
+    let usable = true
+    for (let f = start; f < start + width; f++) {
+      const v = speed[f]
+      if (!Number.isFinite(v)) {
+        usable = false
+        break
+      }
+      sum += v
+    }
+    if (!usable) continue
+    const mean = sum / width
+    if (!best || mean < best.mean) best = { start, end: start + width - 1, mean }
+  }
+  return best
+}
+
+/**
  * Maxima locaux dépassant une fraction du pic global, espacés d'au moins
  * `separation` frames (suppression des non-maxima).
  */
@@ -165,10 +212,13 @@ function buildCandidate(
   const impact = argMax(sig.handsY, top + 1, Math.min(n - 1, top + downWindow))
   if (impact <= top) return null
 
-  // Adresse : dernière immobilité avant le sommet.
+  // Adresse : dernière immobilité avant le sommet. À défaut, la fenêtre la
+  // plus calme — un minimum existe toujours, un franchissement de seuil non.
   const preRuns = stillRuns(sig.handSpeed, 0, Math.max(0, top - 1), EVENTS.stillSpeed, minLen)
   const addressFound = preRuns.length > 0
-  const addressRun = addressFound ? preRuns[preRuns.length - 1] : null
+  const addressRun = addressFound
+    ? preRuns[preRuns.length - 1]
+    : quietestWindow(sig.handSpeed, 0, Math.max(0, top - 1), minLen)
   const address = addressRun
     ? addressRun.end
     : Math.max(0, top - Math.round(EVENTS.minBackswingSec * fps))

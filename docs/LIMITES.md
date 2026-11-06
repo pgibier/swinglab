@@ -89,7 +89,52 @@ Même situation que pour la position de la balle : mesurable chez
 l'utilisateur, pas comparable à une référence. Ces grandeurs sont donc
 affichées sans verdict.
 
-## 4. Ce qui débloquerait la qualité de frappe
+## 4. L'adresse est la phase la moins fiable, et le moteur le sait
+
+Mesuré sur les 1045 swings annotés du corpus, à ±3 images :
+
+| phase | correct | erreur médiane | biais médian signé |
+|---|---|---|---|
+| midDownswing | 88,3 % | 1 img | −1 |
+| impact | 79,5 % | 1 img | 0 |
+| midBackswing | 69,4 % | 1 img | +1 |
+| top | 68,3 % | 2 img | 0 |
+| **address** | **20,5 %** | **11 img** | **+10** |
+| **finish** | **9,9 %** | **30 img** | **+12** |
+
+Les deux mauvais scores s'expliquent en partie par une divergence de
+convention plutôt que par une erreur : le biais est systématique et positif.
+L'annotation marque l'adresse au moment où le joueur est en place ; le moteur
+retient la dernière image immobile avant le départ, donc plus tard. Même
+logique pour le finish. Un biais systématique ne se corrige pas en changeant
+le détecteur, mais en choisissant une convention — et celle du moteur est la
+bonne pour la mesure, puisque la géométrie de setup doit être lue quand le
+joueur est posé, pas quand il s'installe encore.
+
+Ce qui compte davantage : **la confiance annoncée par le moteur est honnête.**
+
+| confiance annoncée | part des clips | erreur médiane | erreurs > 40 images |
+|---|---|---|---|
+| ≥ 0,90 | 26 % | 5 img | 3 % |
+| < 0,90 | 74 % | 20 img | 33 % |
+
+Quand le moteur annonce une adresse fiable, elle l'est. Quand il annonce un
+doute, le doute est justifié une fois sur trois de façon grossière. Les règles
+de setup propagent déjà cette confiance (`ruleConfidence`) et mesurent la
+médiane sur toute la fenêtre d'immobilité plutôt qu'une image isolée, ce qui
+amortit l'erreur — mais un défaut de setup affiché avec une confiance basse
+reste affiché avec sa sévérité. C'est le prochain arbitrage à trancher :
+taire la règle, ou continuer à l'afficher avec sa réserve.
+
+Un filet a été ajouté là où le repli était une devinette. Quand aucune plage
+ne passe sous le seuil d'immobilité, l'adresse est désormais la fenêtre la
+plus calme avant le sommet, au lieu d'une position fixe avant le sommet. Sur
+le corpus le gain est marginal (20,3 % → 20,5 %) parce que le cas est rare
+avec des points clés propres ; dans le navigateur il corrigeait une adresse
+placée à l'image 20 au lieu de 3, ce qui faisait tomber la confiance sur
+l'angle de prise de vue de 0,97 à 0,04 et taisait huit règles.
+
+## 5. Ce qui débloquerait la qualité de frappe
 
 Le flou de mouvement décroît avec la cadence. À 60 i/s la tête de club
 parcourt plusieurs dizaines de centimètres entre deux images ; à 240 i/s,
