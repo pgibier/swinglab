@@ -311,11 +311,136 @@ export interface ExtractOptions {
   onProgress?: (p: ExtractionProgress) => void
   /** Force le mode économe : moins d'images analysées, pour tenir en mémoire. */
   lowEnd?: boolean
+  /** Désactive la capture par lecture et force le parcours par seek. */
+  disablePlayback?: boolean
   /** Instant de début de l'analyse, en secondes. */
   startSec?: number
   /** Instant de fin de l'analyse, en secondes. */
   endSec?: number
   signal?: AbortSignal
+}
+
+/** Déclaration de cancelVideoFrameCallback, absente des types DOM standards. */
+type CancelRVFC = (handle: number) => void
+const cancelRvfc = (v: HTMLVideoElement): CancelRVFC | null => {
+  const fn = (v as unknown as { cancelVideoFrameCallback?: CancelRVFC }).cancelVideoFrameCallback
+  return typeof fn === 'function' ? fn.bind(v) : null
+}
+
+interface CapturedFrame {
+  time: number
+  frame: PoseFrame
+}
+
+/**
+ * Extraction par LECTURE, sans aucun seek.
+ *
+ * Positionner `currentTime` vide et réamorce le décodeur à chaque image.
+ * Sur iOS c'est la manœuvre la plus coûteuse de la chaîne et la plus
+ * susceptible de faire tuer l'onglet, qui meurt sans message. Lire la vidéo
+ * au ralenti et traiter les images telles qu'elles sont présentées supprime
+ * les seeks : le décodeur travaille en séquentiel.
+ *
+ * La vitesse de lecture est choisie pour que l'inférence tienne la cadence.
+ * Si trop d'images sont manquées, on recommence plus lentement : mieux vaut
+ * attendre que d'analyser un swing troué.
+ */
+async function captureByPlayback(
+  video: HTMLVideoElement,
+  start: number,
+  end: number,
+  sourceFps: number,
+  draw: (timestampMs: number) => PoseFrame,
+  opts: { signal?: AbortSignal; onProgress?: (ratio: number, captured: number, expected: number) => void },
+): Promise<CapturedFrame[] | null> {
+  const request = rvfc(video)
+  const cancel = cancelRvfc(video)
+  if (!request) return null
+
+  const expected = Math.max(1, Math.round((end - start) * sourceFps))
+
+  for (const rate of EXTRACTION.playbackRates) {
+    if (opts.signal?.aborted) throw new DOMException('Analyse annulée', 'AbortError')
+    const captured: CapturedFrame[] = []
+    let handle = 0
+    let stopped = false
+    let timestampMs = 0
+
+    try {
+      await seekTo(video, start)
+    } catch {
+      return null
+    }
+    video.playbackRate = rate
+    video.muted = true
+
+    const done = new Promise<'ok' | 'slow'>((resolve) => {
+      /*
+       * Deux sorties de secours indispensables : la vidéo peut se terminer
+       * avant d'atteindre la borne (requestVideoFrameCallback cesse alors
+       * d'être appelé et la promesse ne se résoudrait jamais), et la lecture
+       * peut se bloquer sur une ressource occupée. Sans elles, l'application
+       * gèle au lieu d'échouer.
+       */
+      const finish = (verdict: 'ok' | 'slow') => {
+        if (stopped) return
+        stopped = true
+        video.removeEventListener('ended', onEnded)
+        window.clearTimeout(guard)
+        resolve(verdict)
+      }
+      const onEnded = () => finish('ok')
+      video.addEventListener('ended', onEnded)
+      // Marge large : trois fois la durée théorique de lecture, plus dix
+      // secondes de démarrage.
+      const guard = window.setTimeout(
+        () => finish('ok'),
+        ((end - start) / rate) * 3000 + 10000,
+      )
+
+      const onFrame = (_now: number, meta: VideoFrameMeta) => {
+        if (stopped) return
+        if (opts.signal?.aborted || meta.mediaTime >= end) {
+          finish('ok')
+          return
+        }
+        captured.push({ time: meta.mediaTime, frame: draw(timestampMs++) })
+        opts.onProgress?.(
+          Math.min(1, (meta.mediaTime - start) / Math.max(1e-6, end - start)),
+          captured.length,
+          expected,
+        )
+        // Cadence insuffisante : inutile de finir une passe trouée.
+        if (captured.length === EXTRACTION.captureProbeFrames) {
+          const span = captured[captured.length - 1].time - captured[0].time
+          const got = captured.length / Math.max(1, Math.round(span * sourceFps) + 1)
+          if (got < EXTRACTION.minCaptureRatio && rate !== EXTRACTION.playbackRates[EXTRACTION.playbackRates.length - 1]) {
+            finish('slow')
+            return
+          }
+        }
+        handle = request(onFrame)
+      }
+      handle = request(onFrame)
+      video.play().catch(() => finish('ok'))
+    })
+
+    const verdict = await done
+    video.pause()
+    if (handle && cancel) cancel(handle)
+    if (verdict === 'slow') continue
+    if (captured.length < 4) return null
+
+    const ratio = captured.length / expected
+    if (ratio >= EXTRACTION.minCaptureRatio) return captured
+    const isLastRate = rate === EXTRACTION.playbackRates[EXTRACTION.playbackRates.length - 1]
+    if (isLastRate) {
+      // Même à la vitesse la plus lente, l'appareil ne suit pas : on préfère
+      // le parcours par seek, plus coûteux, à une séquence trouée.
+      return ratio >= EXTRACTION.minAcceptableCaptureRatio ? captured : null
+    }
+  }
+  return null
 }
 
 /**
@@ -380,6 +505,57 @@ export async function extractPoseSequence(
   const timestampBase = timestampCursor + 1000
   let lastTimestampMs = timestampBase - 1
 
+  /** Dessine l'image courante et renvoie la pose détectée. */
+  const inferCurrent = (offsetMs: number): PoseFrame => {
+    const timestampMs = Math.max(lastTimestampMs + 1, timestampBase + offsetMs)
+    lastTimestampMs = timestampMs
+    timestampCursor = timestampMs
+    try {
+      if (canvasCtx) canvasCtx.drawImage(video, 0, 0, inferWidth, inferHeight)
+      return toFrame(landmarker.detectForVideo(source, timestampMs).landmarks?.[0])
+    } catch {
+      return null
+    }
+  }
+
+  /*
+   * Voie principale : lecture au ralenti, sans aucun seek. Voie de repli :
+   * parcours par seek, déterministe mais bien plus coûteux pour le décodeur.
+   */
+  if (!opts.disablePlayback) {
+    const captured = await captureByPlayback(
+      video,
+      start,
+      end,
+      sourceFps,
+      (ms) => inferCurrent(ms),
+      {
+        signal,
+        onProgress: (ratio, got, exp) =>
+          onProgress?.({ ratio, stage: 'extracting', frame: got, totalFrames: exp }),
+      },
+    )
+    if (captured && captured.length >= 4) {
+      const deltas: number[] = []
+      for (let i = 1; i < captured.length; i++) {
+        const d = captured[i].time - captured[i - 1].time
+        if (d > 1e-5) deltas.push(d)
+      }
+      deltas.sort((a, b) => a - b)
+      const medianDelta = deltas.length ? deltas[deltas.length >> 1] : 1 / sourceFps
+      return {
+        frames: captured.map((c) => c.frame),
+        // La cadence effective est celle réellement observée, pas celle
+        // demandée : une image manquée doit se voir dans les dérivées.
+        fps: medianDelta > 1e-6 ? 1 / medianDelta : sourceFps,
+        timestamps: captured.map((c) => c.time),
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        window: swingWindow,
+      }
+    }
+  }
+
   for (let i = 0; i < totalFrames; i++) {
     if (signal?.aborted) throw new DOMException('Analyse annulée', 'AbortError')
 
@@ -394,18 +570,7 @@ export async function extractPoseSequence(
       continue
     }
 
-    // MediaPipe exige des timestamps strictement croissants en mode VIDEO.
-    const timestampMs = Math.max(lastTimestampMs + 1, timestampBase + Math.round((t - start) * 1000))
-    lastTimestampMs = timestampMs
-    timestampCursor = timestampMs
-
-    try {
-      if (canvasCtx) canvasCtx.drawImage(video, 0, 0, inferWidth, inferHeight)
-      const result = landmarker.detectForVideo(source, timestampMs)
-      frames.push(toFrame(result.landmarks?.[0]))
-    } catch {
-      frames.push(null)
-    }
+    frames.push(inferCurrent(Math.round((t - start) * 1000)))
 
     onProgress?.({
       ratio: (i + 1) / totalFrames,

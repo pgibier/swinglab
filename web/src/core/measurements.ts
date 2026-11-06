@@ -17,17 +17,53 @@
 import { LM } from './landmarks'
 import { hasAll, pt, type CleanedPose } from './smoothing'
 import type { BodyRef } from './normalize'
-import type { BallObservation, Measurement, SwingEvents } from './types'
+import type { BallObservation, Measurement, ShaftObservation, SwingEvents } from './types'
 
 export interface MeasurementInput {
   c: CleanedPose
   ref: BodyRef
   events: SwingEvents
   ball: BallObservation | null
+  shaft: ShaftObservation | null
 }
 
-export function computeMeasurements({ c, ref, events, ball }: MeasurementInput): Measurement[] {
+export function computeMeasurements({ c, ref, events, ball, shaft }: MeasurementInput): Measurement[] {
   const out: Measurement[] = []
+
+  /*
+   * Angles du manche. Mesurés sur l'image, jamais jugés : la détection est
+   * fiable sur une vidéo de téléphone en pleine résolution, mais aucune
+   * référence n'est disponible — sur les vignettes du corpus, l'étendue des
+   * angles atteint 233°, le détecteur y attrape le décor.
+   */
+  if (shaft) {
+    const note =
+      'Angle du manche sur l\u2019image, 0° à l\u2019horizontale. Visible en surimpression sur la vidéo. ' +
+      'Aucune zone saine n\u2019est affichée : le corpus de référence ne permet pas d\u2019en établir une.'
+    if (shaft.address) {
+      out.push({
+        id: 'shaft_address',
+        label: 'Angle du manche à l\u2019adresse',
+        value: Math.round(shaft.address.angle),
+        unit: '°',
+        confidence: shaft.confidence,
+        frame: events.address,
+        note,
+      })
+    }
+    if (shaft.top) {
+      out.push({
+        id: 'shaft_top',
+        label: 'Angle du manche au sommet',
+        value: Math.round(shaft.top.angle),
+        unit: '°',
+        confidence: shaft.confidence,
+        frame: events.top,
+        note,
+      })
+    }
+  }
+
   if (!ball) return out
   const a = events.address
   // La balle est normalisée sur la largeur ; les points clés l'ont été sur la

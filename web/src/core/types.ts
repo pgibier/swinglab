@@ -48,6 +48,31 @@ export interface BallObservation {
   confidence: number
 }
 
+/**
+ * Manche du club repéré sur une image clé.
+ *
+ * Mesuré, jamais jugé : la détection est fiable sur une vidéo de téléphone
+ * en pleine résolution, mais aucune calibration n'est possible — sur les
+ * vignettes 160×160 du corpus de référence, l'étendue des angles atteint
+ * 233°, le détecteur y attrape n'importe quelle ligne du décor.
+ */
+export interface ShaftSegment {
+  /** Extrémité côté mains, en coordonnées normalisées. */
+  x1: number
+  y1: number
+  /** Extrémité côté tête de club. */
+  x2: number
+  y2: number
+  /** Angle image en degrés, 0 = vers la droite, positif vers le haut. */
+  angle: number
+}
+
+export interface ShaftObservation {
+  address: ShaftSegment | null
+  top: ShaftSegment | null
+  confidence: number
+}
+
 export interface PoseSequence {
   frames: PoseFrame[]
   /**
@@ -71,6 +96,8 @@ export interface PoseSequence {
   window?: { startSec: number; endSec: number; trimmed: boolean }
   /** Balle repérée dans la vidéo, si elle l'a été. */
   ball?: BallObservation | null
+  /** Manche du club repéré aux images clés, si détectable. */
+  shaft?: ShaftObservation | null
 }
 
 export type ViewType = 'face_on' | 'down_the_line' | 'unknown'
@@ -216,6 +243,8 @@ export interface SwingReport {
     impactCorroboratedByBall: boolean
     /** Balle repérée, si elle l'a été. */
     ball: BallObservation | null
+    /** Manche repéré, si détectable. */
+    shaft: ShaftObservation | null
     view: ViewType
     viewConfidence: number
     handedness: Handedness
@@ -238,6 +267,31 @@ export interface SwingReport {
    * sache quoi filmer pour les débloquer — plutôt que de deviner.
    */
   notEvaluated: Array<{ id: string; label: string; reason: string }>
-  /** Score global de synthèse [0..100]. */
-  score: number
+  /**
+   * Constat factuel, à la place d'une note sur 100.
+   *
+   * Une note invite à lire « mon swing vaut 96 » là où la mesure ne dit que
+   * « ma géométrie corporelle ressemble à celle d'un pro ». Deux formules
+   * ont été essayées et mesurées : celle par seuils donne 100 à un swing de
+   * débutant, celle par centiles donne 64 — mais donne aussi 64 de médiane
+   * aux professionnels eux-mêmes. Aucune des deux ne discrimine, parce que
+   * l'information n'est pas dans les grandeurs mesurées. Voir docs/LIMITES.md.
+   */
+  summary: {
+    /** Mesures sortant de la plage p10–p90 du corpus de référence. */
+    outsideRange: number
+    /** Mesures comparables à une référence dans cette vue. */
+    comparable: number
+    /** Centile médian de l'utilisateur sur ces mesures. */
+    medianPercentile: number | null
+  }
+  /** Ce que l'analyse couvre, et surtout ce qu'elle ne couvre pas. */
+  coverage: {
+    /** Nombre de règles réellement évaluées sur cette vidéo. */
+    evaluated: number
+    /** Nombre total de règles du moteur. */
+    total: number
+    /** Dimensions que l'analyse ne mesure pas du tout, et pourquoi. */
+    notMeasured: Array<{ label: string; reason: string }>
+  }
 }

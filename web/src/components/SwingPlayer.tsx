@@ -101,9 +101,17 @@ export function SwingPlayer({
         fault: selectedFault,
         faultColor,
         ball: report.meta.ball,
+        // Le manche n'est mesuré qu'à l'adresse et au sommet : on ne le
+        // trace que sur ces images, sinon il resterait figé au mauvais endroit.
+        shaft:
+          index === report.events.address
+            ? (report.meta.shaft?.address ?? null)
+            : index === report.events.top
+              ? (report.meta.shaft?.top ?? null)
+              : null,
       })
     },
-    [faultColor, report.events.address, report.meta.ball, selectedFault, sequence, showSkeleton],
+    [faultColor, report.events, report.meta.ball, report.meta.shaft, selectedFault, sequence, showSkeleton],
   )
 
   const goToFrame = useCallback(

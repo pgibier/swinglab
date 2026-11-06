@@ -9,7 +9,7 @@
 export { analyzeSequence, type AnalysisOutcome } from './report'
 export * from './types'
 export { LM, SKELETON_EDGES, CORE_LANDMARKS, LANDMARK_COUNT } from './landmarks'
-export { FAULTS, EVENTS, QUALITY, SMOOTHING, VIEW, SCORE_PENALTY, SCORE_FLOOR } from './config'
+export { FAULTS, EVENTS, QUALITY, SMOOTHING, VIEW } from './config'
 export { cleanSequence, type CleanedPose, pt, hasAll } from './smoothing'
 export { buildReference, type BodyRef, handsCenter, hipCenter, shoulderCenter } from './normalize'
 export { computeSignals, detectEvents, type EventSignals } from './events'

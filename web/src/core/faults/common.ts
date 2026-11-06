@@ -1,6 +1,6 @@
 /** Socle commun aux règles de diagnostic. */
 
-import { SCORE_PENALTY, type FaultThresholds } from '../config'
+import type { FaultThresholds } from '../config'
 import { CORE_LANDMARKS } from '../landmarks'
 import { clamp, meanFinite } from '../geometry'
 import type { CleanedPose } from '../smoothing'
@@ -72,8 +72,6 @@ export function severityFrom(deviation: number, minor: number, major: number): S
   if (deviation >= (minor + major) / 2) return 'moderate'
   return 'minor'
 }
-
-export const penaltyOf = (s: Severity): number => SCORE_PENALTY[s]
 
 /** Visibilité moyenne des points clés du diagnostic sur les frames données. */
 export function visibilityAt(c: CleanedPose, frames: readonly number[]): number {

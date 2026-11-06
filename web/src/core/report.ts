@@ -5,15 +5,16 @@
  * métriques → règles → score.
  */
 
-import { QUALITY, SCORE_FLOOR, faultsFor } from './config'
+import { QUALITY, faultsFor } from './config'
+import { percentileOf, statsFor, type ReferenceProfile } from './reference'
 import { CORE_LANDMARKS, LM } from './landmarks'
-import { clamp, dist, meanFinite } from './geometry'
+import { dist, meanFinite } from './geometry'
 import { hasAll, pt, cleanSequence, type CleanedPose } from './smoothing'
 import { buildReference } from './normalize'
 import { computeSignals, detectEvents } from './events'
 import { computeMetrics } from './metrics'
 import { computeMeasurements } from './measurements'
-import { ALL_RULES, isNotEvaluated, penaltyOf, type FaultContext } from './faults'
+import { ALL_RULES, isNotEvaluated, type FaultContext } from './faults'
 import type { ClubKind, FaultResult, PoseSequence, SwingQuality, SwingReport } from './types'
 
 export type AnalysisOutcome =
@@ -38,6 +39,41 @@ function footDriftU(c: CleanedPose, addressFrame: number, impactFrame: number, s
   return dist(at(addressFrame), at(impactFrame)) / scale
 }
 
+/**
+ * Ce que l'analyse ne mesure pas, quelle que soit la vidéo.
+ *
+ * Affiché systématiquement. Taire ces limites laisse croire qu'un bon
+ * indice de posture vaut un bon swing, ce qui est faux : on peut avoir une
+ * géométrie de corps irréprochable et frapper la balle n'importe comment.
+ */
+const NOT_MEASURED: Array<{ label: string; reason: string }> = [
+  {
+    label: 'Qualité de frappe',
+    reason:
+      'Contact centré, gras ou maigre : il faudrait voir la tête de club au moment du contact, ' +
+      'or elle est floue à 60 i/s. Filmer en ralenti (120 ou 240 i/s) est ce qui changerait la donne.',
+  },
+  {
+    label: 'Face et chemin de club',
+    reason:
+      'Ouverture ou fermeture de la face, trajectoire intérieure ou extérieure : hors de portée ' +
+      'd\u2019une caméra unique sans suivi de la tête de club.',
+  },
+  {
+    label: 'Vol de balle',
+    reason:
+      'À 60 i/s la balle parcourt plus d\u2019un demi-mètre entre deux images et se fond dans le flou. ' +
+      'Vérifié image par image : rien d\u2019exploitable ne subsiste après l\u2019impact.',
+  },
+  {
+    label: 'Séquençage du corps',
+    reason:
+      'L\u2019ordre bassin → torse → bras demande une rotation 3D qu\u2019une seule caméra ne donne pas. ' +
+      'Mesuré sur le corpus, le proxy 2D ne retrouve l\u2019ordre attendu que dans 72 % des cas chez ' +
+      'des professionnels : trop peu fiable pour être affiché.',
+  },
+]
+
 export interface AnalysisOptions {
   /**
    * Club utilisé pour ce swing. Plusieurs zones saines en dépendent
@@ -46,6 +82,13 @@ export interface AnalysisOptions {
    * tous les clubs, qui ne détecte que les écarts francs.
    */
   club?: ClubKind
+  /**
+   * Corpus de référence. Quand il est fourni, le score mesure l'écart au
+   * centre de la distribution sur CHAQUE métrique, au lieu de ne compter que
+   * les seuils franchis — un swing médiocre partout sans rien dépasser
+   * obtenait sinon une note excellente.
+   */
+  reference?: ReferenceProfile | null
 }
 
 export function analyzeSequence(
@@ -86,6 +129,7 @@ export function analyzeSequence(
 
   const sig = computeSignals(c)
   const ball = seq.ball ?? null
+  const shaft = seq.shaft ?? null
   const {
     events,
     confidence: eventConfidence,
@@ -138,13 +182,34 @@ export function analyzeSequence(
     return rb - ra
   })
 
-  // Le score pondère chaque pénalité par la confiance : un diagnostic incertain
-  // ne doit pas écraser la note.
-  let score = 100
+  /*
+   * Constat factuel plutôt qu'une note sur 100.
+   *
+   * Deux formules ont été essayées et mesurées. Celle par seuils donnait 100
+   * au swing d'un débutant ; celle par centiles donnait 64, mais donnait
+   * aussi 64 de médiane aux 409 swings de professionnels du corpus. Aucune
+   * ne discrimine, parce que l'information n'est pas dans les grandeurs
+   * mesurées : sur cinq de ses sept mesures, ce débutant est dans la plage
+   * p10–p90 des pros. Une note ne peut donc qu'induire en erreur.
+   *
+   * On rapporte à la place ce que la mesure permet réellement d'affirmer :
+   * combien de grandeurs sortent de la plage professionnelle, et où
+   * l'utilisateur se situe en médiane.
+   */
+  const percentiles: number[] = []
+  let outsideRange = 0
   for (const f of faults) {
-    if (f.detected) score -= penaltyOf(f.severity) * f.confidence
+    const match = statsFor(options.reference ?? null, ref.view, f.id, club)
+    if (!match) continue
+    const position = percentileOf(match.stats, f.value)
+    if (!position) continue
+    percentiles.push(position.rank)
+    if (position.rank < 10 || position.rank > 90) outsideRange++
   }
-  score = Math.round(clamp(score, SCORE_FLOOR, 100))
+  const sortedPercentiles = [...percentiles].sort((a, b) => a - b)
+  const medianPercentile = sortedPercentiles.length
+    ? Math.round(sortedPercentiles[sortedPercentiles.length >> 1])
+    : null
 
   const warnings: string[] = []
   if (c.fps < QUALITY.warnFps) {
@@ -183,6 +248,7 @@ export function analyzeSequence(
         club,
         impactCorroboratedByBall,
         ball,
+        shaft,
         view: ref.view,
         viewConfidence: ref.viewConfidence,
         handedness: ref.handedness,
@@ -196,9 +262,18 @@ export function analyzeSequence(
       eventConfidence,
       metrics,
       faults,
-      measurements: computeMeasurements({ c, ref, events, ball }),
+      measurements: computeMeasurements({ c, ref, events, ball, shaft }),
       notEvaluated: notEvaluatedList,
-      score,
+      summary: {
+        outsideRange,
+        comparable: percentiles.length,
+        medianPercentile,
+      },
+      coverage: {
+        evaluated: faults.length,
+        total: faults.length + notEvaluatedList.length,
+        notMeasured: NOT_MEASURED,
+      },
     },
   }
 }

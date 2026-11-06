@@ -248,6 +248,42 @@ export const EXTRACTION = {
    * qui est suspecte, pas le corps.
    */
   ballImpactMaxDisagreement: 4,
+  // --- Extraction par lecture, sans seek ---
+  //
+  // Positionner `currentTime` vide et réamorce le décodeur à chaque image.
+  // Sur iOS c'est la manœuvre la plus coûteuse de toute la chaîne, et la
+  // plus susceptible de faire tuer l'onglet. Lire la vidéo au ralenti et
+  // traiter les images telles qu'elles sont présentées supprime
+  // complètement les seeks : le décodeur travaille en séquentiel, ce pour
+  // quoi il est fait.
+  /**
+   * Vitesses de lecture essayées, de la plus rapide à la plus lente.
+   * À 0,06 sur une vidéo 60 i/s, l'inférence dispose de 278 ms par image —
+   * de quoi tenir même sur un téléphone lent.
+   */
+  playbackRates: [0.5, 0.25, 0.12, 0.06],
+  /** Part d'images à capturer pour juger une passe réussie. */
+  minCaptureRatio: 0.85,
+  /**
+   * Plancher absolu sous lequel la capture par lecture est abandonnée au
+   * profit du parcours par seek.
+   *
+   * Sans ce plancher, un appareil trop lent produirait une séquence trouée
+   * et une analyse silencieusement dégradée — ce qui est pire qu'une
+   * extraction lente. Mieux vaut un repli coûteux qu'un résultat faux.
+   */
+  minAcceptableCaptureRatio: 0.6,
+  /** Images observées avant de juger si la cadence tient. */
+  captureProbeFrames: 20,
+  // --- Détection du manche ---
+  /** Seuil de gradient au-delà duquel un pixel est un contour. */
+  shaftEdgeThreshold: 90,
+  /** Longueur minimale d'un manche, en longueurs de torse. */
+  shaftMinLengthU: 0.5,
+  /** Longueur maximale explorée. */
+  shaftMaxLengthU: 2.4,
+  /** Dispersion angulaire tolérée entre images voisines, en degrés. */
+  shaftMaxSpreadDeg: 12,
   /** Seuils de confiance passés à MediaPipe. */
   minPoseDetectionConfidence: 0.5,
   minPosePresenceConfidence: 0.5,
@@ -453,13 +489,14 @@ export function faultsFor(club: ClubKind): FaultThresholds {
   return { ...FAULTS, ...FAULTS_BY_CLUB[group] }
 }
 
-/** Poids de chaque gravité dans le score global sur 100. */
-export const SCORE_PENALTY: Record<'none' | 'minor' | 'moderate' | 'major', number> = {
-  none: 0,
-  minor: 4,
-  moderate: 9,
-  major: 16,
-}
+/*
+ * Les constantes de score ont été retirées, et c'est un résultat, pas un
+ * oubli. Deux formules ont été mesurées : par seuils, un swing de débutant
+ * obtient 100 ; par centiles, il obtient 64 — mais les 409 swings de
+ * professionnels du corpus obtiennent eux aussi 64 de médiane. Aucune ne
+ * discrimine, parce que l'information n'est pas dans les grandeurs que la
+ * pose mesure. Le rapport expose désormais un constat factuel.
+ * Détail : docs/LIMITES.md.
+ */
 
-/** Score plancher : on n'affiche jamais 0 à un débutant. */
-export const SCORE_FLOOR = 25
+

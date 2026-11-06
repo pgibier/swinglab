@@ -66,12 +66,12 @@ console.log('\n[1] Swing propre, vue de face')
   const detected = r.faults.filter((f) => f.detected).map((f) => `${f.id}:${f.severity}`)
   check('aucun défaut majeur sur un swing propre',
     !r.faults.some((f) => f.severity === 'major'), detected.join(', '))
-  check('score élevé', r.score >= 80, `score ${r.score}`)
+  check('aucun défaut détecté sur un swing propre', detected.length === 0, detected.join(', '))
 
   // Les règles réservées à la vue de derrière doivent se taire, pas deviner.
   check('early extension non évaluée de face', skipped(r, 'early_extension'))
   check('posture non évaluée de face', skipped(r, 'loss_of_posture'))
-  console.log(`     score=${r.score} défauts détectés=[${detected.join(', ')}]`)
+  console.log(`     défauts détectés=[${detected.join(', ')}]`)
 }
 
 // ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ console.log('\n[2] Sway injecté (bassin qui glisse de 30 % du torse)')
   check('sway détecté en gravité « important »', sev(r, 'sway') === 'major', sev(r, 'sway'))
   check('valeur mesurée proche de 30 % du torse',
     Math.abs(val(r, 'sway') - 30) < 7, `${val(r, 'sway')} %`)
-  check('score dégradé', r.score < 90, `score ${r.score}`)
+  check('le sway est bien signalé comme défaut', r.faults.some((f) => f.id === 'sway' && f.detected))
 }
 
 // ---------------------------------------------------------------------------
@@ -314,6 +314,64 @@ console.log('\n[16] Le club doit changer le verdict, pas seulement l\u2019affich
   const sd = analyze('sway driver', { view: 'face_on', swayU: 0.3 }, { club: 'driver' })
   const si = analyze('sway fer', { view: 'face_on', swayU: 0.3 }, { club: 'iron' })
   check('le sway ne dépend pas du club', sev(sd, 'sway') === sev(si, 'sway'))
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n[17] Le rapport constate, il ne note pas')
+// ---------------------------------------------------------------------------
+{
+  /*
+   * Le défaut corrigé : une note sur 100 laissait lire « mon swing vaut 96 »
+   * là où la mesure ne disait que « ma géométrie corporelle ressemble à celle
+   * d'un pro ». Deux formules ont été mesurées, aucune ne discrimine — voir
+   * docs/LIMITES.md. Le rapport expose désormais un constat vérifiable et la
+   * liste de ce qu'il ne couvre pas.
+   */
+  const band = (p10: number, p50: number, p90: number) => ({
+    n: 200, mean: p50, sd: (p90 - p10) / 2.5,
+    percentiles: {
+      '5': p10 - (p50 - p10) * 0.4, '10': p10, '25': (p10 + p50) / 2, '50': p50,
+      '75': (p50 + p90) / 2, '90': p90, '95': p90 + (p90 - p50) * 0.4,
+    },
+  })
+  const reference = {
+    label: 'test', clipsAnalysed: 200, clipsKept: 200,
+    views: {
+      face_on: {
+        sway: band(0, 1, 14),
+        slide: band(-3, 8, 27),
+        head_movement: band(13, 23, 40),
+        reverse_pivot: band(-8, 4, 12),
+        chicken_wing: band(134, 151, 166),
+        tempo: band(2.3, 3.3, 5.0),
+        finish_balance: band(2.7, 5.6, 11.8),
+        setup_stance_width: band(1.24, 1.5, 1.84),
+      },
+    },
+  } as never
+
+  const clean = analyzeSequence(synthSwing({ view: 'face_on' }), { reference })
+  check('le rapport situe l\u2019utilisateur dans le corpus',
+    clean.ok && clean.report.summary.comparable >= 4 && clean.report.summary.medianPercentile !== null,
+    clean.ok ? `${clean.report.summary.comparable} mesures comparables` : 'refusé')
+
+  const extreme = analyzeSequence(
+    synthSwing({ view: 'face_on', swayU: 0.45, headShiftU: 0.8 }),
+    { reference },
+  )
+  check('un écart franc sort de la plage du corpus',
+    extreme.ok && clean.ok && extreme.report.summary.outsideRange > clean.report.summary.outsideRange,
+    extreme.ok && clean.ok
+      ? `${extreme.report.summary.outsideRange} vs ${clean.report.summary.outsideRange}`
+      : 'refusé')
+
+  const report = analyze('couverture', { view: 'face_on' })
+  check('la couverture annonce ce qui n\u2019est pas mesuré',
+    report.coverage.notMeasured.length >= 3 &&
+    report.coverage.notMeasured.some((x) => /frappe/i.test(x.label)),
+    `${report.coverage.notMeasured.length} dimensions`)
+  check('aucune note sur 100 n\u2019est exposée',
+    !('score' in (report as unknown as Record<string, unknown>)))
 }
 
 // ---------------------------------------------------------------------------

@@ -191,3 +191,5 @@ Avec `npm run setup:assets -- --models full`, les modèles sont inclus dans
 6. Comparer la détection de phases à SwingNet sur GolfDB.
 
 Détail des choix techniques : [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Résultats négatifs, et ce que la pose seule ne peut pas dire :
+[`docs/LIMITES.md`](docs/LIMITES.md).

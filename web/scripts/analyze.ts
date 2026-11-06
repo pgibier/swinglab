@@ -24,9 +24,20 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { analyzeSequence } from '../src/core/report'
+import { isReferenceProfile, type ReferenceProfile } from '../src/core/reference'
 import { SWING_EVENTS, type ClubKind, type PoseSequence } from '../src/core/types'
 
 const argv = process.argv.slice(2)
+
+/** Corpus de référence, nécessaire au score par centiles. */
+function loadReference(): ReferenceProfile | null {
+  const i = argv.indexOf('--reference')
+  if (i < 0 || !argv[i + 1]) return null
+  const parsed: unknown = JSON.parse(readFileSync(argv[i + 1], 'utf8'))
+  if (!isReferenceProfile(parsed)) throw new Error('profil de référence invalide')
+  return parsed
+}
+const reference = loadReference()
 
 /** Complète une séquence partielle lue depuis un fichier. */
 function toSequence(raw: Partial<PoseSequence>): PoseSequence {
@@ -91,7 +102,7 @@ if (argv[0] === '--batch') {
     try {
       const sequence = toSequence(JSON.parse(readFileSync(join(dir, file), 'utf8')))
       const club = clubByClip.get(id) ?? 'unknown'
-      const outcome = analyzeSequence(sequence, { club })
+      const outcome = analyzeSequence(sequence, { club, reference })
       if (!outcome.ok) {
         failed++
         lines.push(JSON.stringify({ id, ok: false, error: outcome.error }))
@@ -125,7 +136,9 @@ if (argv[0] === '--batch') {
           footDrift: r.meta.quality.footDrift,
           eventConfidence: r.eventConfidence,
           events: r.events,
-          score: r.score,
+          outsideRange: r.summary.outsideRange,
+          comparable: r.summary.comparable,
+          medianPercentile: r.summary.medianPercentile,
           metrics,
           severities,
         }),
@@ -159,7 +172,7 @@ try {
   process.exit(2)
 }
 
-const outcome = analyzeSequence(sequence)
+const outcome = analyzeSequence(sequence, { reference })
 if (!outcome.ok) {
   console.log(JSON.stringify({ ok: false, error: outcome.error, hint: outcome.hint }))
   process.exit(1)
@@ -194,7 +207,9 @@ if (flags.includes('--metrics')) {
   console.log(`Vue        : ${report.meta.view} (${Math.round(report.meta.viewConfidence * 100)} %)`)
   console.log(`Latéralité : ${report.meta.handedness}`)
   console.log(`Cadence    : ${report.meta.fps.toFixed(1)} i/s sur ${report.meta.frameCount} images`)
-  console.log(`Score      : ${report.score}/100`)
+  console.log(`Constat    : ${report.summary.outsideRange}/${report.summary.comparable} mesures hors plage pro` +
+    (report.summary.medianPercentile !== null ? `, centile médian ${report.summary.medianPercentile}e` : ''))
+  console.log(`Couverture : ${report.coverage.evaluated}/${report.coverage.total} règles évaluées`)
   console.log('Phases     :')
   for (const name of SWING_EVENTS) {
     console.log(`  ${name.padEnd(18)} image ${String(report.events[name]).padStart(4)}  (fiabilité ${Math.round(report.eventConfidence[name] * 100)} %)`)

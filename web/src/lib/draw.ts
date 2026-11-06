@@ -14,7 +14,7 @@
 
 import { LM, SKELETON_EDGES } from '../core/landmarks'
 import { SMOOTHING } from '../core/config'
-import type { BallObservation, FaultResult, Landmark } from '../core/types'
+import type { BallObservation, FaultResult, Landmark, ShaftSegment } from '../core/types'
 
 const JOINT_RADIUS = 4.5
 const BONE_WIDTH = 3
@@ -292,6 +292,25 @@ function drawBall(ctx: CanvasRenderingContext2D, ball: BallObservation, w: numbe
   ctx.restore()
 }
 
+/** Manche du club, tracé en surimpression. */
+function drawShaft(ctx: CanvasRenderingContext2D, seg: ShaftSegment, w: number, h: number): void {
+  ctx.save()
+  ctx.lineCap = 'round'
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)'
+  ctx.lineWidth = 7
+  ctx.beginPath()
+  ctx.moveTo(seg.x1 * w, seg.y1 * h)
+  ctx.lineTo(seg.x2 * w, seg.y2 * h)
+  ctx.stroke()
+  ctx.strokeStyle = 'rgba(255, 210, 90, 0.95)'
+  ctx.lineWidth = 3.5
+  ctx.beginPath()
+  ctx.moveTo(seg.x1 * w, seg.y1 * h)
+  ctx.lineTo(seg.x2 * w, seg.y2 * h)
+  ctx.stroke()
+  ctx.restore()
+}
+
 export interface OverlayRequest {
   ctx: CanvasRenderingContext2D
   width: number
@@ -304,12 +323,15 @@ export interface OverlayRequest {
   faultColor: string
   /** Balle repérée, dessinée en repère permanent. */
   ball?: BallObservation | null
+  /** Manche du club sur cette image, s'il y a été mesuré. */
+  shaft?: ShaftSegment | null
 }
 
 export function renderOverlay(req: OverlayRequest): void {
-  const { ctx, width, height, frame, reference, showSkeleton, fault, faultColor, ball } = req
+  const { ctx, width, height, frame, reference, showSkeleton, fault, faultColor, ball, shaft } = req
   ctx.clearRect(0, 0, width, height)
   if (ball && showSkeleton) drawBall(ctx, ball, width, height)
+  if (shaft && showSkeleton) drawShaft(ctx, shaft, width, height)
   if (!frame) return
   if (showSkeleton) drawSkeleton(ctx, frame, width, height)
   if (fault) {

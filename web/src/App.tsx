@@ -8,6 +8,7 @@ import { SwingPlayer, type SeekRequest } from './components/SwingPlayer'
 import { ReportView } from './components/ReportView'
 import { ModelLoadError, loadLandmarker, type LoadedLandmarker } from './pose/mediapipe'
 import { detectBall } from './pose/ball'
+import { measureShaft } from './pose/shaft'
 import {
   extractPoseSequence,
   isLowEndDevice,
@@ -67,6 +68,10 @@ export default function App() {
   // reste stable entre deux rendus.
   const clubRef = useRef<ClubKind>(club)
   clubRef.current = club
+  // Le corpus sert au score par centiles : il doit être lisible depuis
+  // handleFile sans en faire une dépendance de rendu.
+  const referenceRef = useRef<ReferenceProfile | null>(null)
+  referenceRef.current = reference
 
   const seekTo = useCallback((frame: number) => {
     setSeekRequest((prev) => ({ frame, nonce: (prev?.nonce ?? 0) + 1 }))
@@ -82,7 +87,7 @@ export default function App() {
     saveClub(next)
     setStage((prev) => {
       if (prev.k !== 'done') return prev
-      const outcome = analyzeSequence(prev.data.sequence, { club: next })
+      const outcome = analyzeSequence(prev.data.sequence, { club: next, reference: referenceRef.current })
       if (!outcome.ok) return prev
       return { ...prev, data: { ...prev.data, report: outcome.report } }
     })
@@ -188,7 +193,7 @@ export default function App() {
 
       mark('analyse du swing', `${sequence.frames.length} images`)
       setStage({ k: 'working', label: 'Analyse du swing…', ratio: 0.98 })
-      let outcome = analyzeSequence(sequence, { club: clubRef.current })
+      let outcome = analyzeSequence(sequence, { club: clubRef.current, reference: referenceRef.current })
 
       /**
        * Filet de sécurité du recadrage automatique : si le swing détecté
@@ -224,7 +229,7 @@ export default function App() {
               ratio: 0.5 + p.ratio * 0.48,
             }),
         })
-        const retry = analyzeSequence(full, { club: clubRef.current })
+        const retry = analyzeSequence(full, { club: clubRef.current, reference: referenceRef.current })
         if (retry.ok) {
           sequence = full
           outcome = retry
@@ -260,12 +265,44 @@ export default function App() {
         })
         if (ball) {
           sequence = { ...sequence, ball }
-          const withBall = analyzeSequence(sequence, { club: clubRef.current })
+          const withBall = analyzeSequence(sequence, { club: clubRef.current, reference: referenceRef.current })
           if (withBall.ok) outcome = withBall
         }
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') throw err
         // La balle est un bonus : son échec ne doit pas emporter l'analyse.
+      }
+
+      /*
+       * Mesure du manche aux deux images où il est net : adresse et sommet.
+       * Comme la balle, c'est une mesure sans verdict — mais la voir
+       * superposée à la vidéo vaut mieux que de ne rien montrer du club.
+       */
+      try {
+        mark('mesure du manche')
+        setStage({
+          k: 'working',
+          label: 'Repérage du club…',
+          detail: 'Manche à l\u2019adresse et au sommet.',
+          ratio: 0.995,
+        })
+        const shaft = await measureShaft(
+          video,
+          sequence,
+          { address: outcome.report.events.address, top: outcome.report.events.top },
+          { signal: controller.signal },
+        )
+        if (shaft) {
+          sequence = { ...sequence, shaft }
+          const withShaft = analyzeSequence(sequence, {
+            club: clubRef.current,
+            reference: referenceRef.current,
+          })
+          if (withShaft.ok) outcome = withShaft
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') throw err
+        // Le club est un bonus : son échec ne doit pas emporter l'analyse.
       }
 
       // Le décodeur de l'élément d'extraction est libéré : sur mobile, le
