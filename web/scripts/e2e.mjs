@@ -10,8 +10,10 @@
  *      décodée, parcourue image par image, inférence MediaPipe exécutée ;
  *   4. selon la vidéo fournie : soit le rapport complet s'affiche (vidéo avec
  *      un joueur), soit le chemin d'erreur est explicite (vidéo sans joueur).
- *      Passe une vidéo contenant réellement quelqu'un pour couvrir le premier
- *      cas — une mire de test ne vérifie que le second.
+ *      Passe une vidéo contenant réellement quelqu'un, filmée de face ou dans
+ *      l'axe, pour couvrir le premier cas : une mire de test ne vérifie que le
+ *      second, et un angle non identifiable fait sauter les règles propres à
+ *      une vue, donc la comparaison au corpus.
  *
  * Prérequis (volontairement hors dépendances du projet, pour ne pas imposer
  * ~300 Mo à l'installation) :
@@ -193,10 +195,13 @@ if (outcome === 'error') {
   check('phases datées et affichées', /Adresse/.test(bodyText) && /Impact/.test(bodyText))
   check('aucune note affichée', !/Score indicatif|\/ ?100\b/.test(bodyText),
     bodyText.slice(0, 200))
+  // Exige que la vidéo fournie ait un angle de prise de vue identifiable :
+  // sans cela le moteur refuse — à raison — d'appliquer les règles propres à
+  // une vue, et il n'y a plus rien à comparer au corpus.
   check(
     'constat chiffré contre le corpus de pros',
     /hors de la plage des pros|Aucune mesure hors de la plage/.test(bodyText),
-    bodyText.slice(0, 200),
+    bodyText.replace(/\s+/g, ' ').slice(0, 400),
   )
 }
 
