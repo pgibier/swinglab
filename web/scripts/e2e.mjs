@@ -7,9 +7,11 @@
  *   2. le moteur donne le même résultat dans le navigateur que dans Node
  *      (importé depuis le serveur de dev, sur un swing synthétique) ;
  *   3. la chaîne réelle tourne : runtime WASM chargé, modèle chargé, vidéo
- *      décodée, parcours par seek, inférence MediaPipe exécutée ;
- *   4. le chemin d'erreur s'affiche correctement quand aucun joueur n'est
- *      détecté dans la vidéo.
+ *      décodée, parcourue image par image, inférence MediaPipe exécutée ;
+ *   4. selon la vidéo fournie : soit le rapport complet s'affiche (vidéo avec
+ *      un joueur), soit le chemin d'erreur est explicite (vidéo sans joueur).
+ *      Passe une vidéo contenant réellement quelqu'un pour couvrir le premier
+ *      cas — une mire de test ne vérifie que le second.
  *
  * Prérequis (volontairement hors dépendances du projet, pour ne pas imposer
  * ~300 Mo à l'installation) :
@@ -108,7 +110,8 @@ const nodeReference = JSON.parse(
         view: clean.report.meta.view,
         handedness: clean.report.meta.handedness,
         events: clean.report.events,
-        cleanScore: clean.report.score,
+        summary: clean.report.summary,
+        values: clean.report.faults.map((f) => [f.id, Math.round(f.value * 1000)]),
         swaySeverity: swayed.report.faults.find((f) => f.id === 'sway')?.severity,
       }))
     `],
@@ -128,8 +131,10 @@ const engineResult = await page.evaluate(async () => {
     view: clean.report.meta.view,
     handedness: clean.report.meta.handedness,
     events: clean.report.events,
-    cleanScore: clean.report.score,
+    summary: clean.report.summary,
+    values: clean.report.faults.map((f) => [f.id, Math.round(f.value * 1000)]),
     swaySeverity: swayed.report.faults.find((f) => f.id === 'sway')?.severity,
+    hasScore: 'score' in clean.report,
   }
 })
 check('moteur importable et exécutable dans le navigateur', !engineResult.error, engineResult.error)
@@ -140,8 +145,20 @@ check(
   JSON.stringify(engineResult.events) === JSON.stringify(nodeReference.events),
   `navigateur ${JSON.stringify(engineResult.events)} vs node ${JSON.stringify(nodeReference.events)}`,
 )
-check('même score que dans Node', engineResult.cleanScore === nodeReference.cleanScore,
-  `${engineResult.cleanScore} vs ${nodeReference.cleanScore}`)
+check(
+  'mêmes valeurs mesurées que dans Node',
+  JSON.stringify(engineResult.values) === JSON.stringify(nodeReference.values),
+  `navigateur ${JSON.stringify(engineResult.values)} vs node ${JSON.stringify(nodeReference.values)}`,
+)
+check(
+  'même constat que dans Node',
+  JSON.stringify(engineResult.summary) === JSON.stringify(nodeReference.summary),
+  `${JSON.stringify(engineResult.summary)} vs ${JSON.stringify(nodeReference.summary)}`,
+)
+// Garde-fou : la note a été retirée parce qu'elle ne séparait pas un débutant
+// d'un professionnel. Si un `score` réapparaît, ce test doit le signaler plutôt
+// que de comparer silencieusement undefined à undefined, comme il le faisait.
+check('le rapport ne porte pas de note', engineResult.hasScore === false)
 check('sway détecté comme important', engineResult.swaySeverity === 'major', engineResult.swaySeverity)
 check('sway jugé pareil que dans Node', engineResult.swaySeverity === nodeReference.swaySeverity)
 
@@ -156,8 +173,9 @@ await page.waitForSelector('text=Détection des points du corps', { timeout: 60_
 check('progression affichée pendant l’extraction', true)
 
 // Fin de traitement : rapport, ou message d'erreur attendu sur une vidéo sans joueur.
+const REPORT_MARKER = 'text=Ce que cette analyse ne mesure pas'
 const outcome = await Promise.race([
-  page.waitForSelector('text=À travailler en priorité', { timeout: 180_000 }).then(() => 'report'),
+  page.waitForSelector(REPORT_MARKER, { timeout: 180_000 }).then(() => 'report'),
   page.waitForSelector('text=Réessayer', { timeout: 180_000 }).then(() => 'error'),
 ])
 const bodyText = await page.textContent('body')
@@ -171,7 +189,15 @@ if (outcome === 'error') {
     /n’est détecté que sur|pas lisible|trop courte/.test(bodyText), bodyText.slice(0, 200))
   console.log('     (attendu : la vidéo de test ne contient aucune personne)')
 } else {
-  check('rapport affiché', /Score indicatif|À travailler/.test(bodyText))
+  check('rapport affiché sur une vraie vidéo', /Ce que cette analyse ne mesure pas/.test(bodyText))
+  check('phases datées et affichées', /Adresse/.test(bodyText) && /Impact/.test(bodyText))
+  check('aucune note affichée', !/Score indicatif|\/ ?100\b/.test(bodyText),
+    bodyText.slice(0, 200))
+  check(
+    'constat chiffré contre le corpus de pros',
+    /hors de la plage des pros|Aucune mesure hors de la plage/.test(bodyText),
+    bodyText.slice(0, 200),
+  )
 }
 
 await page.screenshot({ path: 'scripts/.e2e-last.png', fullPage: true })
@@ -189,7 +215,7 @@ await page.waitForSelector('input[type=file]', { state: 'attached', timeout: 15_
 await page.setInputFiles('input[type=file]', videoPath)
 await page.waitForSelector('text=Détection des points du corps', { timeout: 60_000 })
 const secondOutcome = await Promise.race([
-  page.waitForSelector('text=À travailler en priorité', { timeout: 300_000 }).then(() => 'report'),
+  page.waitForSelector(REPORT_MARKER, { timeout: 300_000 }).then(() => 'report'),
   page.waitForSelector('text=Réessayer', { timeout: 300_000 }).then(() => 'error'),
 ]).catch(() => 'timeout')
 check('la deuxième analyse aboutit comme la première', secondOutcome === outcome,
